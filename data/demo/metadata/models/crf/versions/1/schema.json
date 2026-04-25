@@ -1,0 +1,61 @@
+{
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "required": [
+    "crf_name",
+    "title",
+    "version",
+    "items"
+  ],
+  "properties": {
+    "crf_name": {
+      "type": "string",
+      "x-pennsieve-key": true
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "instructions": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Markdown-formatted instructions for data collectors."
+    },
+    "version": {
+      "type": "string"
+    },
+    "disease_scope": {
+      "type": "string"
+    },
+    "estimated_duration_minutes": {
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "collection_frequency": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "external_url": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Canonical URL to the official form document (e.g. DOCX/PDF hosted by the source organization)."
+    },
+    "items": {
+      "type": "array",
+      "description": "Ordered list of form items. Each is a section header, a bundle reference, or a CDE reference."
+    }
+  }
+}

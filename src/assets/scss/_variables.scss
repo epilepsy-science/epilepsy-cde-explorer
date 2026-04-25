@@ -1,0 +1,80 @@
+// Mirrors epilepsy-science-app-2/assets/scss/_variables.scss so that when this
+// prototype is lifted into Nuxt the same tokens resolve identically.
+
+// Primary teal borrowed from the epilepsy.science landing `.highlight-text`.
+// Was #297fca (bright blue); the site's emphasized-text color felt stronger
+// as the primary action color for this prototype.
+$es-primary-color: #3e7877;
+$es-primary-color-light: #f0f0f0;
+// Kept as an alias for any code that still references the highlight token.
+$es-highlight: $es-primary-color;
+
+// Sparc design system
+$purple: #8300bf;
+$darkBlue: #24245b;
+$grey: #303133;
+
+$lightPurple: #bc00fc;
+$blue: #0026ff;
+
+// Status
+$success: #5e9f69;
+$warning: #ff8400;
+$danger: #b51d09;
+
+// Text
+$neutralGrey: #616161;
+$mediumGrey: #606266;
+$lightGrey: #909399;
+
+// Line
+$lineColor1: #dcdfe6;
+$lineColor2: #e4e7ed;
+
+// Background
+$background: #f5f7fa;
+$cochlear: #ffffff;
+$tooltipColor: #f3ecf6;
+
+$darkGrey: #606266;
+
+$app-primary-color: $purple;
+$app-secondary-color: $darkBlue;
+
+$font-family: 'Montserrat', sans-serif;
+
+// Viewport
+$viewport-sm: 20rem;
+$viewport-md: 47rem;
+$viewport-lg: 64rem;
+$viewport-xlg: 120rem;
+
+// Greys
+$gray_0: #f2f2f2;
+$gray_1: #f7f7f7;
+$gray_2: #e5e5e5;
+$gray_3: #cccccc;
+$gray_4: #999999;
+$gray_5: #4d4d4d;
+$gray_6: #333333;
+
+$purple_1: #808fad;
+$purple_2: #4d628c;
+$purple_3: #011f5b;
+$orange_1: #f9a23a;
+$white: #ffffff;
+$green_1: #17bb62;
+$green_2: #14a758;
+$red_1: #f25641;
+$red_2: #c14d49;
+
+$dopamine: $purple_3;
+$dopamine-dark: $purple_3;
+$glial: $gray_4;
+$cortex: $gray_3;
+$dendrite: $gray_0;
+$orange: $orange_1;
+$myelin: $gray_6;
+$axon: $gray_1;
+
+$text-color: $gray_5;

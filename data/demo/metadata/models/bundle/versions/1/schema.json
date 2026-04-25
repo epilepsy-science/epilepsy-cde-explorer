@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "required": [
+    "bundle_name",
+    "domain",
+    "subdomain",
+    "category",
+    "working_group"
+  ],
+  "properties": {}
+}

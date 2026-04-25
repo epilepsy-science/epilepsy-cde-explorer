@@ -1,0 +1,179 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Montserrat', sans-serif;
+  color: $text-color;
+  background: $background;
+  font-size: 14px;
+  line-height: 24px;
+}
+
+h1 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 32px;
+  text-transform: uppercase;
+  margin: 0;
+}
+
+h2 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 28px;
+  margin: 0 0 0.5rem;
+}
+
+h3 {
+  font-family: 'Montserrat', sans-serif;
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 24px;
+  text-transform: uppercase;
+  margin: 0 0 0.5rem;
+}
+
+h4 {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+  margin: 0 0 0.25rem;
+}
+
+a {
+  color: $es-primary-color;
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
+}
+
+p {
+  margin: 0 0 0.5rem;
+}
+
+@media (min-width: 1024px) {
+  h1 {
+    font-size: 32px;
+    line-height: 40px;
+  }
+  h2 {
+    font-size: 24px;
+    line-height: 32px;
+  }
+  h3 {
+    font-size: 18px;
+    line-height: 28px;
+  }
+}
+
+// Element Plus accent tweak to match epilepsy.science primary.
+// Variants derived from $es-primary-color (#3e7877) by mixing with
+// white / black at Element Plus's standard weights (30/50/70/80/90 for
+// light-*, 20 for dark-2).
+:root {
+  --el-color-primary: #{$es-primary-color};
+  --el-color-primary-light-3: #78a1a0;
+  --el-color-primary-light-5: #9fbcbb;
+  --el-color-primary-light-7: #c5d7d6;
+  --el-color-primary-light-8: #d8e4e4;
+  --el-color-primary-light-9: #ecf2f1;
+  --el-color-primary-dark-2: #32605f;
+  --el-font-family:
+    'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --el-text-color-primary: #{$gray_5};
+  --el-text-color-regular: #{$gray_5};
+  --el-border-color: #{$lineColor1};
+  --el-border-color-light: #{$lineColor2};
+  --el-bg-color-page: #{$background};
+  --el-color-success: #{$success};
+  --el-color-warning: #{$warning};
+  --el-color-danger: #{$danger};
+}
+
+// Utility
+.subtle {
+  color: $neutralGrey;
+  font-size: 13px;
+}
+
+// Shared soft teal-wash band used as the page header on internal views.
+// A subtler sibling to the home hero — visual continuity without the drama.
+.page-header {
+  padding: 1.1rem 1.5rem;
+  background: linear-gradient(
+    135deg,
+    lighten($es-primary-color, 52%) 0%,
+    $white 100%
+  );
+  border: 1px solid $lineColor2;
+  border-radius: 2px;
+
+  h1 {
+    margin: 0 0 0.25rem;
+  }
+  .lede,
+  > p,
+  > div > p {
+    margin: 0;
+    max-width: 760px;
+  }
+}
+
+.muted {
+  color: $lightGrey;
+}
+
+.mono {
+  font-family: 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 2px;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  background: $gray_0;
+  color: $gray_6;
+  white-space: nowrap;
+  border-left: 2px solid transparent;
+
+  &.pill--core {
+    background: #e8f3ec;
+    color: #2d6b3a;
+    border-left-color: #2d6b3a;
+  }
+  &.pill--recommended {
+    background: #eaf1fa;
+    color: #1f528f;
+    border-left-color: #1f528f;
+  }
+  &.pill--supplemental {
+    background: #fdf3df;
+    color: #7a4a05;
+    border-left-color: #c08b00;
+  }
+  &.pill--na {
+    background: $gray_0;
+    color: $gray_4;
+  }
+}
+
+// Crisper defaults for Element Plus components.
+:root {
+  --el-border-radius-base: 2px;
+  --el-border-radius-small: 2px;
+}

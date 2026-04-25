@@ -1,0 +1,7 @@
+{
+  "name": "NLM NINDS Disease Epilepsy",
+  "description": "Extracted from cde.nlm.nih.gov for org=NINDS, classification=[Disease, Epilepsy].",
+  "version": 1,
+  "datePublished": "2026-04-25",
+  "pennsieveSchemaVersion": "5.0"
+}

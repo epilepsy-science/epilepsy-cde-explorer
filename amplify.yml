@@ -1,0 +1,46 @@
+version: 1
+frontend:
+  phases:
+    preBuild:
+      commands:
+        - yarn install --frozen-lockfile
+        - yarn prepare-data
+    build:
+      commands:
+        - yarn build
+  artifacts:
+    baseDirectory: dist
+    files:
+      - '**/*'
+  cache:
+    paths:
+      - node_modules/**/*
+
+customHeaders:
+  # Parquet data — content-addressed by filename, safe to cache indefinitely.
+  - pattern: '/data/**'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=31536000, immutable'
+      - key: 'Content-Type'
+        value: 'application/octet-stream'
+
+  # DuckDB-WASM binaries — large, uncompressed, cache forever.
+  - pattern: '**/*.wasm'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=31536000, immutable'
+      - key: 'Content-Type'
+        value: 'application/wasm'
+
+  # Vite emits content-hashed filenames here, so immutable is safe.
+  - pattern: '/assets/**'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=31536000, immutable'
+
+  # index.html must always revalidate so clients pick up new asset hashes.
+  - pattern: '/index.html'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=0, must-revalidate'

@@ -1,0 +1,28 @@
+node_modules
+dist
+.DS_Store
+*.log
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Local Claude Code session config
+.claude/
+
+# Generated Parquet — reproducible via `yarn prepare-data`
+public/data/*.parquet
+public/data/manifest.json
+public/data/*/
+
+# Raw Pennsieve discover export — large, opt-in, not part of default builds
+data/pennsieve-discover/
+
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfvars
+!terraform/*.tfvars.example
+terraform/.terraform.lock.hcl
