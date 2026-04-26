@@ -1,0 +1,431 @@
+openapi: 3.0.3
+info:
+  title: Epilepsy CDE Explorer API
+  version: 1.0.0
+  description: |
+    Review API behind https://cde.epilepsy.science. Email magic-code auth
+    gated by an allowlist; CDE/Bundle review submissions persisted to a
+    DynamoDB single-table store with an append-only history per (reviewer,
+    target).
+
+    This spec is the source of truth for both API Gateway routes (rendered
+    by Terraform via `body = templatefile(openapi.yaml, ...)`) and the
+    dashboard's TypeScript fetch client (regenerated via
+    `openapi-typescript`).
+
+servers:
+  - url: https://api.cde.epilepsy.science
+    description: Production
+
+# ── Security ────────────────────────────────────────────────────────────────
+# Public routes (request-code, verify-code) override `security: []`. Every
+# other route inherits `bearerAuth`.
+security:
+  - bearerAuth: []
+
+paths:
+  /v1/auth/request-code:
+    post:
+      summary: Request an email verification code
+      description: |
+        Always returns 200 regardless of allowlist membership — keeps this
+        from being usable as an enumeration oracle. When the email IS
+        allowlisted, generates a fresh 6-digit code, stores its hash with a
+        10-minute TTL, and sends the code via SES.
+      operationId: requestCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RequestCodeBody' }
+      responses:
+        '200':
+          description: Code sent (or pretended-to-send for unallowlisted addresses)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RequestCodeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+      x-amazon-apigateway-integration: &lambdaProxy
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
+
+  /v1/auth/verify-code:
+    post:
+      summary: Verify an email code, return a JWT
+      description: |
+        Constant-time-compares the submitted code against the stored hash;
+        increments `attempts` on failure (lockout at 5). On success, deletes
+        the AUTH row (single-use) and issues a 30-day JWT. Returns the
+        existing profile if there is one, so the dashboard can skip the
+        profile-setup screen for returning reviewers.
+      operationId: verifyCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VerifyCodeBody' }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VerifyCodeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+  /v1/me:
+    get:
+      summary: Current reviewer's profile
+      operationId: getMe
+      responses:
+        '200':
+          description: Profile
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: Profile not set yet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+    put:
+      summary: Upsert the current reviewer's profile
+      operationId: putMe
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileBody' }
+      responses:
+        '200':
+          description: Profile saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Profile' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+    delete:
+      summary: GDPR right-to-erasure — delete profile + reviews + history
+      description: |
+        Removes every item under PK=REVIEWER#<email> (profile, all reviews,
+        history rows, any pending verification code). Leaves the INVITE#
+        row alone — that's the allowlist gate, separately managed.
+      operationId: deleteMe
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeleteMeResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+  /v1/reviews:
+    post:
+      summary: Submit (or amend) a review for a CDE/Bundle for one disease
+      description: |
+        Upserts the current review for (reviewer, target_type, target_ref,
+        disease) AND appends an immutable REVIEW_HISTORY#<v> row in a single
+        TransactWrite, so the panel report can reconstruct each reviewer's
+        tier changes over time.
+      operationId: postReview
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReviewBody' }
+      responses:
+        '200':
+          description: Review saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Review' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+  /v1/reviews/me:
+    get:
+      summary: List the current reviewer's reviews
+      description: |
+        Returns the caller's *current* reviews (history rows excluded) so
+        the dashboard can render coverage stats and skip already-classified
+        targets in session selection.
+      operationId: listMyReviews
+      parameters:
+        - in: query
+          name: disease
+          schema: { $ref: '#/components/schemas/Disease' }
+          required: false
+          description: Optional — filter to a single disease.
+      responses:
+        '200':
+          description: Reviews
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ListReviewsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+  /v1/admin/export:
+    get:
+      summary: Admin — full export of all current reviews
+      description: |
+        Streams every reviewer's latest take on every target in a single
+        JSON dump so the external panel can run their consensus-decision
+        process over a snapshot. Excludes history rows. Soft-launch scale;
+        if total reviews ever pass ~10k consider switching to S3-backed
+        export.
+      operationId: adminExport
+      responses:
+        '200':
+          description: All reviews
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AdminExportResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+      x-amazon-apigateway-integration: *lambdaProxy
+
+# ── Components ──────────────────────────────────────────────────────────────
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  responses:
+    BadRequest:
+      description: Invalid request
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Authenticated, but caller lacks the required role
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Rate-limited (e.g. too many code attempts)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServerError:
+      description: Unhandled internal error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    # ── Enums (kept in sync with Go handlers + dashboard's useDiseaseLens.ts) ──
+    Disease:
+      type: string
+      enum: [pte, tbi, sci, neurotrauma, epilepsy, agnostic]
+
+    StudyType:
+      type: string
+      nullable: true
+      enum: [Clinical, Preclinical, '']
+      description: Empty string or omitted = both clinical and preclinical.
+
+    Role:
+      type: string
+      enum: [rev, admin]
+
+    TargetType:
+      type: string
+      enum: [cde, bundle]
+
+    Classification:
+      type: string
+      enum: [Core, Recommended, Supplemental, 'Not Applicable']
+
+    # ── Errors ───────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable short snake_case code for clients to switch on.
+              example: bad_request
+            message:
+              type: string
+              description: Human-readable detail.
+
+    # ── Auth ─────────────────────────────────────────────────────────────────
+    RequestCodeBody:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          example: jane@example.org
+
+    RequestCodeResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [sent]
+          description: Always "sent" — does not indicate allowlist membership.
+
+    VerifyCodeBody:
+      type: object
+      required: [email, code]
+      properties:
+        email:
+          type: string
+          format: email
+        code:
+          type: string
+          pattern: '^\d{6}$'
+          description: 6-digit numeric code from the verification email.
+
+    VerifyCodeResponse:
+      type: object
+      required: [token, expires_in, role]
+      properties:
+        token:
+          type: string
+          description: JWT to send in `Authorization. Bearer <token>` for protected endpoints.
+        expires_in:
+          type: integer
+          description: Token lifetime in seconds.
+        role: { $ref: '#/components/schemas/Role' }
+        profile:
+          $ref: '#/components/schemas/Profile'
+          nullable: true
+          description: Existing profile (if any), so the dashboard skips first-run setup.
+
+    # ── Profile ──────────────────────────────────────────────────────────────
+    ProfileBody:
+      type: object
+      required: [name, primary_diseases]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        primary_diseases:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Disease' }
+        primary_study_type: { $ref: '#/components/schemas/StudyType' }
+
+    Profile:
+      type: object
+      required: [email, name, primary_diseases]
+      properties:
+        email: { type: string, format: email }
+        name: { type: string }
+        primary_diseases:
+          type: array
+          items: { $ref: '#/components/schemas/Disease' }
+        primary_study_type: { $ref: '#/components/schemas/StudyType' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Me:
+      allOf:
+        - $ref: '#/components/schemas/Profile'
+        - type: object
+          required: [role]
+          properties:
+            role: { $ref: '#/components/schemas/Role' }
+
+    DeleteMeResponse:
+      type: object
+      required: [deleted_items]
+      properties:
+        deleted_items: { type: integer, minimum: 0 }
+
+    # ── Reviews ──────────────────────────────────────────────────────────────
+    ReviewBody:
+      type: object
+      required: [target_type, target_ref, disease, classification]
+      properties:
+        target_type:    { $ref: '#/components/schemas/TargetType' }
+        target_ref:
+          type: string
+          description: The CDE name or Bundle name being reviewed.
+        disease:        { $ref: '#/components/schemas/Disease' }
+        classification: { $ref: '#/components/schemas/Classification' }
+        comment:
+          type: string
+          maxLength: 2000
+        flags:
+          type: array
+          items: { type: string }
+          description: Free-form short tags (e.g. "wrong_pvs", "redundant").
+
+    Review:
+      type: object
+      required: [target_type, target_ref, disease, classification, version, updated_at]
+      properties:
+        target_type:    { $ref: '#/components/schemas/TargetType' }
+        target_ref:     { type: string }
+        disease:        { $ref: '#/components/schemas/Disease' }
+        classification: { $ref: '#/components/schemas/Classification' }
+        comment:        { type: string }
+        flags:
+          type: array
+          items: { type: string }
+        version:
+          type: integer
+          minimum: 1
+          description: Bumps on every amend.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    ListReviewsResponse:
+      type: object
+      required: [reviews]
+      properties:
+        reviews:
+          type: array
+          items: { $ref: '#/components/schemas/Review' }
+
+    # ── Admin ────────────────────────────────────────────────────────────────
+    AdminReviewExport:
+      allOf:
+        - type: object
+          required: [reviewer_email]
+          properties:
+            reviewer_email: { type: string, format: email }
+        - $ref: '#/components/schemas/Review'
+
+    AdminExportResponse:
+      type: object
+      required: [reviews, count]
+      properties:
+        reviews:
+          type: array
+          items: { $ref: '#/components/schemas/AdminReviewExport' }
+        count: { type: integer, minimum: 0 }
