@@ -62,14 +62,16 @@ resource "aws_amplify_domain_association" "this" {
 
 # Amplify exports the cert verification + sub-domain DNS records as space-
 # delimited strings ("name CNAME value"). Split them for Route 53.
+# `try()` guards against empty strings during `terraform import` (the
+# domain association's records aren't populated until refresh), so the
+# import flow doesn't blow up evaluating these locals.
 locals {
-  cert_record_parts = split(" ", aws_amplify_domain_association.this.certificate_verification_dns_record)
-  cert_record_name  = local.cert_record_parts[0]
-  cert_record_value = local.cert_record_parts[2]
+  cert_record_parts = try(split(" ", aws_amplify_domain_association.this.certificate_verification_dns_record), [])
+  cert_record_name  = try(local.cert_record_parts[0], "")
+  cert_record_value = try(local.cert_record_parts[2], "")
 
-  sub_record_parts = split(" ", tolist(aws_amplify_domain_association.this.sub_domain)[0].dns_record)
-  sub_record_name  = local.sub_record_parts[0]
-  sub_record_value = local.sub_record_parts[2]
+  sub_record_parts = try(split(" ", tolist(aws_amplify_domain_association.this.sub_domain)[0].dns_record), [])
+  sub_record_value = try(local.sub_record_parts[2], "")
 }
 
 # ACM cert verification CNAME — short-lived (only needed during issuance) but
@@ -88,11 +90,13 @@ resource "aws_route53_record" "cert_verification" {
 }
 
 # Public-facing CNAME — points cde.epilepsy.science at the Amplify
-# CloudFront distribution.
+# CloudFront distribution. Construct the FQDN from variables (rather than
+# parsing the prefix-only `cde` token out of the dns_record string) so the
+# imported record's name matches without forcing replacement.
 resource "aws_route53_record" "subdomain" {
   provider = aws.dns
   zone_id  = data.aws_route53_zone.this.zone_id
-  name     = local.sub_record_name
+  name     = "${var.subdomain_prefix}.${var.root_domain}"
   type     = "CNAME"
   ttl      = 300
   records  = [local.sub_record_value]
