@@ -1,5 +1,6 @@
 node_modules
 dist
+api/dist
 .DS_Store
 *.log
 
@@ -19,10 +20,11 @@ public/data/*/
 # Raw Pennsieve discover export — large, opt-in, not part of default builds
 data/pennsieve-discover/
 
-# Terraform
-terraform/.terraform/
-terraform/*.tfstate
-terraform/*.tfstate.backup
-terraform/*.tfvars
-!terraform/*.tfvars.example
-terraform/.terraform.lock.hcl
+# Terraform — recurse into sibling components (terraform/api/, etc.)
+terraform/**/.terraform/
+terraform/**/.terraform-tmp/
+terraform/**/.terraform.lock.hcl
+terraform/**/*.tfstate
+terraform/**/*.tfstate.backup
+terraform/**/*.tfvars
+!terraform/**/*.tfvars.example
