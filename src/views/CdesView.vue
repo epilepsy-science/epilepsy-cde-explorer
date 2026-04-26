@@ -18,10 +18,16 @@ const router = useRouter();
 const { status, query } = useDuckDB();
 const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
 
-function csvParam(v: string | string[] | undefined | null): string[] {
-  if (!v) return [];
-  const s = Array.isArray(v) ? v.join(',') : v;
-  return s.split(',').map((x) => x.trim()).filter(Boolean);
+// Vue Router types route.query values as `LocationQueryValue | LocationQueryValue[]`
+// where `LocationQueryValue = string | null`. Accept both shapes and silently
+// drop any null entries.
+type RawQueryValue = string | null | (string | null)[] | undefined;
+function csvParam(v: RawQueryValue): string[] {
+  if (v == null) return [];
+  const arr = Array.isArray(v) ? v : [v];
+  return arr
+    .filter((x): x is string => typeof x === 'string')
+    .flatMap((x) => x.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
 // Filters — seed from URL so drill-through links from /explore land here pre-filtered.

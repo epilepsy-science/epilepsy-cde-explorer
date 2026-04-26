@@ -20,5 +20,5 @@ output "production_branch_url" {
 
 output "custom_domain_url" {
   description = "Public URL on the custom domain. May take 5–15 minutes after first apply for cert + DNS to converge."
-  value       = "https://${aws_amplify_domain_association.this.sub_domain[*].prefix[0]}.${var.root_domain}"
+  value       = "https://${var.subdomain_prefix}.${var.root_domain}"
 }

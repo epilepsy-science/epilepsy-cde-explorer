@@ -53,6 +53,12 @@ export interface CdeRow {
   bundle_category: string | null;
   bundle_working_group: string | null;
 
+  // CDE-level taxonomy from cde_full (COALESCE(cl.<col>, b.<col>)). Surfaces on
+  // every row regardless of whether the CDE belongs to a bundle.
+  cde_domain: string | null;
+  cde_subdomain: string | null;
+  cde_category: string | null;
+
   source_labels: string | null;
   source_count: number | null;
 

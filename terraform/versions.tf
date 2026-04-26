@@ -36,3 +36,12 @@ provider "aws" {
     }
   }
 }
+
+# DNS lives in a different AWS account (pennsieve-cc) than the Amplify app
+# (pennsieve-dev). The aliased provider scopes Route 53 calls to the cc
+# account, while everything else uses the default provider above.
+provider "aws" {
+  alias   = "dns"
+  region  = var.region
+  profile = var.dns_aws_profile
+}

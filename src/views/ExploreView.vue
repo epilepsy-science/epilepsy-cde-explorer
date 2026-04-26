@@ -36,7 +36,7 @@ function setStudyType(v: StudyTypeFilter) {
         <div class="lens-label subtle">Research focus</div>
         <el-radio-group
           :model-value="lens"
-          @update:model-value="(v) => setLens(v as DiseaseKey)"
+          @update:model-value="(v: string | number | boolean | undefined) => setLens(v as DiseaseKey)"
           size="default"
         >
           <el-radio-button
@@ -50,7 +50,7 @@ function setStudyType(v: StudyTypeFilter) {
         <div class="lens-label subtle explore__lens-sub">Study type</div>
         <el-radio-group
           :model-value="studyTypeFilter"
-          @update:model-value="(v) => setStudyType(v as StudyTypeFilter)"
+          @update:model-value="(v: string | number | boolean | undefined) => setStudyType(v as StudyTypeFilter)"
           size="default"
         >
           <el-radio-button value="all">All</el-radio-button>

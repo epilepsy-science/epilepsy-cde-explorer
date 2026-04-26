@@ -7,7 +7,13 @@ variable "region" {
 variable "aws_profile" {
   type        = string
   default     = "pennsieve-dev-admin"
-  description = "Local AWS CLI profile used for apply."
+  description = "AWS profile that owns the Amplify app + ACM cert (pennsieve-dev account)."
+}
+
+variable "dns_aws_profile" {
+  type        = string
+  default     = "pennsieve-cc-admin"
+  description = "AWS profile that owns the Route 53 zone for the root domain (pennsieve-cc account, where epilepsy.science lives)."
 }
 
 variable "environment" {
