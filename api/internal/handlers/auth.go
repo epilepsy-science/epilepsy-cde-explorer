@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -16,6 +17,7 @@ import (
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/apihttp"
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/codes"
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/ddb"
+	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/recaptcha"
 )
 
 // ── POST /v1/auth/request-code ──────────────────────────────────────────────
@@ -26,12 +28,27 @@ import (
 // 10-min TTL, and sends the code via SES.
 
 type requestCodeBody struct {
-	Email string `json:"email"`
+	Email          string `json:"email"`
+	RecaptchaToken string `json:"recaptcha_token,omitempty"`
 }
 type requestCodeResp struct {
 	Status string `json:"status"` // always "sent"
 }
 
+// RequestCode generates a verification code, persists its hash, and emails
+// it. Layered abuse defenses (in order):
+//
+//  1. Per-email rate limit — reject if a code was issued < N seconds ago.
+//     Cheapest check; runs before any external calls or SES quota use.
+//  2. reCAPTCHA — when the runtime toggle is on, every request must carry a
+//     valid token with score ≥ threshold for the configured action.
+//  3. Allowlist — when the toggle is on, unallowlisted addresses get a
+//     constant-time pretend-to-send response so the endpoint can't be used
+//     as an enumeration oracle.
+//
+// All three are flippable via SSM at runtime (cached for ~60s in
+// runtimecfg.Cache), so the soft-launch → wider-access transition is a
+// `aws ssm put-parameter` away.
 func RequestCode(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Services) (any, error) {
 	var body requestCodeBody
 	if err := apihttp.ParseJSON(req, &body); err != nil {
@@ -42,14 +59,42 @@ func RequestCode(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Ser
 		return nil, err
 	}
 
-	allowed, err := isAllowlisted(ctx, s, email)
+	// 1. Per-email rate limit — bail fast.
+	if err := enforceCodeInterval(ctx, s, email); err != nil {
+		return nil, err
+	}
+
+	// 2. reCAPTCHA — only when runtime toggle is on. We verify BEFORE the
+	//    allowlist check so a bot can't probe the allowlist via timing.
+	recaptchaOn, err := s.Runtime.Bool(ctx, s.Cfg.RecaptchaToggleSSM)
 	if err != nil {
-		slog.Error("allowlist check failed", "email", email, "err", err)
+		slog.Error("recaptcha toggle read failed", "err", err)
 		return nil, apihttp.ServerError("Could not process request")
 	}
-	if !allowed {
-		slog.Info("request-code: email not allowlisted", "email", email)
-		return requestCodeResp{Status: "sent"}, nil
+	if recaptchaOn {
+		if err := verifyRecaptcha(ctx, s, body.RecaptchaToken, sourceIP(req)); err != nil {
+			return nil, err
+		}
+	}
+
+	// 3. Allowlist — only when toggle is on. When off, anyone with a valid
+	//    captcha can request a code. The constant-time path keeps the
+	//    response indistinguishable when the allowlist is on.
+	allowlistOn, err := s.Runtime.Bool(ctx, s.Cfg.AllowlistToggleSSM)
+	if err != nil {
+		slog.Error("allowlist toggle read failed", "err", err)
+		return nil, apihttp.ServerError("Could not process request")
+	}
+	if allowlistOn {
+		allowed, err := isAllowlisted(ctx, s, email)
+		if err != nil {
+			slog.Error("allowlist check failed", "email", email, "err", err)
+			return nil, apihttp.ServerError("Could not process request")
+		}
+		if !allowed {
+			slog.Info("request-code: email not allowlisted", "email", email)
+			return requestCodeResp{Status: "sent"}, nil
+		}
 	}
 
 	code, err := codes.Generate()
@@ -83,6 +128,54 @@ func RequestCode(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Ser
 	}
 	slog.Info("verification code sent", "email", email)
 	return requestCodeResp{Status: "sent"}, nil
+}
+
+// enforceCodeInterval rejects with 429 if a code was issued for this email
+// within the last N seconds (default 60s, configurable). Caps SES abuse:
+// even if both the allowlist and reCAPTCHA are off, an attacker can't
+// repeatedly trigger emails to the same address.
+func enforceCodeInterval(ctx context.Context, s *Services, email string) error {
+	if s.Cfg.RequestCodeMinIntervalSec <= 0 {
+		return nil
+	}
+	auth, err := getAuth(ctx, s, email)
+	if err != nil {
+		return apihttp.ServerError("Could not check rate limit")
+	}
+	if auth == nil {
+		return nil
+	}
+	since := time.Since(time.UnixMilli(auth.IssuedAt))
+	limit := time.Duration(s.Cfg.RequestCodeMinIntervalSec) * time.Second
+	if since < limit {
+		return apihttp.TooManyRequests("Wait a moment before requesting another code")
+	}
+	return nil
+}
+
+func verifyRecaptcha(ctx context.Context, s *Services, token, remoteIP string) error {
+	secret, err := s.Runtime.Get(ctx, s.Cfg.RecaptchaSecretSSM, true)
+	if err != nil {
+		slog.Error("recaptcha secret read failed", "err", err)
+		return apihttp.ServerError("Could not verify request")
+	}
+	v := recaptcha.New(secret, s.Cfg.RecaptchaAction, s.Cfg.RecaptchaMinScore)
+	if err := v.Verify(ctx, token, remoteIP); err != nil {
+		slog.Info("recaptcha rejected", "err", err.Error())
+		return apihttp.New(401, "captcha_failed", "Captcha verification failed")
+	}
+	return nil
+}
+
+// sourceIP grabs the client IP from API Gateway HTTP API's request context.
+// X-Forwarded-For is also available; SourceIP is the directly-connecting
+// client (or the load balancer in front of API GW).
+func sourceIP(req events.APIGatewayV2HTTPRequest) string {
+	ip := req.RequestContext.HTTP.SourceIP
+	if i := strings.Index(ip, ","); i > 0 {
+		ip = ip[:i]
+	}
+	return strings.TrimSpace(ip)
 }
 
 func isAllowlisted(ctx context.Context, s *Services, email string) (bool, error) {

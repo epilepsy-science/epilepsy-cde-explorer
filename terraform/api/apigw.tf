@@ -43,6 +43,14 @@ resource "aws_apigatewayv2_stage" "default" {
   name        = "$default"
   auto_deploy = true
 
+  # Per-route throttling: caps abuse from a single misbehaving client. Not a
+  # replacement for reCAPTCHA (attackers rotate IPs) but raises the cost
+  # floor cheaply, with no client work. Tune via tfvars if too tight.
+  default_route_settings {
+    throttling_burst_limit = var.throttle_burst_limit
+    throttling_rate_limit  = var.throttle_rate_limit
+  }
+
   access_log_settings {
     destination_arn = aws_cloudwatch_log_group.apigw.arn
     format = jsonencode({

@@ -178,6 +178,12 @@ export interface components {
              * @example jane@example.org
              */
             email: string;
+            /**
+             * @description Google reCAPTCHA v3 token from `grecaptcha.execute(siteKey,
+             *     { action: 'request_code' })`. Required when reCAPTCHA verification
+             *     is toggled on server-side; ignored when off.
+             */
+            recaptcha_token?: string;
         };
         RequestCodeResponse: {
             /**
@@ -336,6 +342,16 @@ export interface operations {
                 };
             };
             400: components["responses"]["BadRequest"];
+            /** @description Captcha verification failed */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            429: components["responses"]["TooManyRequests"];
             500: components["responses"]["ServerError"];
         };
     };

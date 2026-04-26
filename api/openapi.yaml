@@ -46,6 +46,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/RequestCodeResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
+        '401':
+          description: Captcha verification failed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/ServerError' }
       x-amazon-apigateway-integration: &lambdaProxy
         type: aws_proxy
@@ -286,6 +292,12 @@ components:
           type: string
           format: email
           example: jane@example.org
+        recaptcha_token:
+          type: string
+          description: |
+            Google reCAPTCHA v3 token from `grecaptcha.execute(siteKey,
+            { action: 'request_code' })`. Required when reCAPTCHA verification
+            is toggled on server-side; ignored when off.
 
     RequestCodeResponse:
       type: object

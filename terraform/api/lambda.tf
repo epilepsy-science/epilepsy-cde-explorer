@@ -69,11 +69,16 @@ data "aws_iam_policy_document" "lambda_inline" {
     }
   }
 
-  # Read JWT signing secret only.
+  # Read JWT signing secret + runtime-config toggles + reCAPTCHA secret.
   statement {
-    sid       = "SSMReadJWT"
-    actions   = ["ssm:GetParameter"]
-    resources = [aws_ssm_parameter.jwt_secret.arn]
+    sid     = "SSMReadConfig"
+    actions = ["ssm:GetParameter"]
+    resources = [
+      aws_ssm_parameter.jwt_secret.arn,
+      aws_ssm_parameter.allowlist_enabled.arn,
+      aws_ssm_parameter.recaptcha_enabled.arn,
+      aws_ssm_parameter.recaptcha_secret.arn,
+    ]
   }
 }
 
@@ -116,6 +121,16 @@ resource "aws_lambda_function" "this" {
       CODE_TTL_SECONDS    = tostring(var.code_ttl_seconds)
       TOKEN_TTL_SECONDS   = tostring(var.token_ttl_seconds)
       MAX_CODE_ATTEMPTS   = tostring(var.max_code_attempts)
+
+      # Runtime-flippable toggles (Lambda reads via 60s-cached SSM).
+      ALLOWLIST_TOGGLE_SSM_NAME = aws_ssm_parameter.allowlist_enabled.name
+      RECAPTCHA_TOGGLE_SSM_NAME = aws_ssm_parameter.recaptcha_enabled.name
+      RECAPTCHA_SECRET_SSM_NAME = aws_ssm_parameter.recaptcha_secret.name
+
+      RECAPTCHA_ACTION    = var.recaptcha_action
+      RECAPTCHA_MIN_SCORE = tostring(var.recaptcha_min_score)
+
+      REQUEST_CODE_MIN_INTERVAL_SECONDS = tostring(var.request_code_min_interval_seconds)
     }
   }
 

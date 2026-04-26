@@ -81,3 +81,35 @@ variable "max_code_attempts" {
   default     = 5
   description = "Failed verify attempts before lockout — reviewer must request a new code."
 }
+
+variable "recaptcha_action" {
+  type        = string
+  default     = "request_code"
+  description = "Action name passed to grecaptcha.execute(); the server enforces it matches."
+}
+
+variable "recaptcha_min_score" {
+  type        = number
+  default     = 0.5
+  description = "Minimum reCAPTCHA v3 score (0.0 = bot, 1.0 = human) to accept."
+}
+
+variable "request_code_min_interval_seconds" {
+  type        = number
+  default     = 60
+  description = "Min seconds between consecutive request-code calls for the same email. Caps SES abuse when allowlist is off."
+}
+
+# ── API Gateway throttling ──────────────────────────────────────────────────
+
+variable "throttle_burst_limit" {
+  type        = number
+  default     = 20
+  description = "API Gateway burst capacity per route — peak request bucket size."
+}
+
+variable "throttle_rate_limit" {
+  type        = number
+  default     = 5
+  description = "API Gateway sustained request rate per route (req/sec)."
+}

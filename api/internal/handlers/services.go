@@ -1,6 +1,7 @@
 // Package handlers contains the route implementations as plain functions
 // keyed off a shared *Services value (DynamoDB client, mailer, JWT service,
-// env config). The Lambda entrypoint in cmd/api wires the route table.
+// runtime config cache, env). The Lambda entrypoint in cmd/api wires the
+// route table.
 package handlers
 
 import (
@@ -11,20 +12,18 @@ import (
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/ddb"
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/env"
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/mailer"
+	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/runtimecfg"
 	"github.com/epilepsy-science/epilepsy-cde-explorer/api/internal/tokens"
 )
 
-// Services bundles AWS clients + config so handlers don't reach into globals
-// and tests can construct one with stubs.
 type Services struct {
-	Cfg    env.Config
-	DDB    *dynamodb.Client
-	Mailer *mailer.Mailer
-	Tokens *tokens.Service
+	Cfg     env.Config
+	DDB     *dynamodb.Client
+	Mailer  *mailer.Mailer
+	Tokens  *tokens.Service
+	Runtime *runtimecfg.Cache
 }
 
-// New builds a Services with real clients. Call once at Lambda init in
-// cmd/api/main.go; container reuse means we only pay this on cold start.
 func New(ctx context.Context) (*Services, error) {
 	cfg := env.MustLoad()
 
@@ -36,10 +35,15 @@ func New(ctx context.Context) (*Services, error) {
 	if err != nil {
 		return nil, err
 	}
+	rt, err := runtimecfg.New(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &Services{
-		Cfg:    cfg,
-		DDB:    dyn,
-		Mailer: ml,
-		Tokens: tokens.NewService(cfg.JWTSecretSSMName, cfg.TokenTTL),
+		Cfg:     cfg,
+		DDB:     dyn,
+		Mailer:  ml,
+		Tokens:  tokens.NewService(cfg.JWTSecretSSMName, cfg.TokenTTL),
+		Runtime: rt,
 	}, nil
 }

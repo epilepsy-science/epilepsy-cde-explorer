@@ -8,6 +8,7 @@ import {
 } from '@/composables/useReviewStore';
 import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
 import { ApiError, api, apiToken, setToken, unwrap } from '@/api/client';
+import { getRecaptchaToken } from '@/api/recaptcha';
 import ReviewSession, { type SessionSummary } from '@/components/explore/ReviewSession.vue';
 import type { DiseaseKey } from '@/types';
 
@@ -55,7 +56,8 @@ async function requestCode() {
   }
   authLoading.value = true;
   try {
-    await unwrap(api.POST('/v1/auth/request-code', { body: { email } }));
+    const recaptcha_token = await getRecaptchaToken('request_code');
+    await unwrap(api.POST('/v1/auth/request-code', { body: { email, recaptcha_token } }));
     authStep.value = 'code';
   } catch (e) {
     authError.value = (e as ApiError).message ?? 'Could not send code.';

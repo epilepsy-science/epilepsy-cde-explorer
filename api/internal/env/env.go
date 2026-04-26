@@ -27,9 +27,23 @@ type Config struct {
 	// Origin where the dashboard is served — used in email body links.
 	AppOrigin string
 
-	CodeTTL        time.Duration
-	TokenTTL       time.Duration
+	CodeTTL         time.Duration
+	TokenTTL        time.Duration
 	MaxCodeAttempts int
+
+	// Operator-flippable toggles live in SSM (read at runtime, cached for
+	// 60s in `runtimecfg.Cache`). The Lambda just needs the names.
+	AllowlistToggleSSM string // SSM String, "true" / "false"
+	RecaptchaToggleSSM string // SSM String, "true" / "false"
+	RecaptchaSecretSSM string // SSM SecureString — Google reCAPTCHA secret key
+
+	// reCAPTCHA bookkeeping (action name + minimum acceptable score)
+	RecaptchaAction   string
+	RecaptchaMinScore float64
+
+	// Per-email "don't issue another code if one was issued in the last N
+	// seconds" — protects against SES abuse when the allowlist is off.
+	RequestCodeMinIntervalSec int
 }
 
 // MustLoad panics on missing/invalid required vars. Call at module init in main.go.
@@ -44,8 +58,29 @@ func MustLoad() Config {
 		CodeTTL:         optionalDurationSeconds("CODE_TTL_SECONDS", 600),
 		TokenTTL:        optionalDurationSeconds("TOKEN_TTL_SECONDS", 30*24*60*60),
 		MaxCodeAttempts: optionalInt("MAX_CODE_ATTEMPTS", 5),
+
+		AllowlistToggleSSM: requireEnv("ALLOWLIST_TOGGLE_SSM_NAME"),
+		RecaptchaToggleSSM: requireEnv("RECAPTCHA_TOGGLE_SSM_NAME"),
+		RecaptchaSecretSSM: requireEnv("RECAPTCHA_SECRET_SSM_NAME"),
+
+		RecaptchaAction:   optionalEnv("RECAPTCHA_ACTION", "request_code"),
+		RecaptchaMinScore: optionalFloat("RECAPTCHA_MIN_SCORE", 0.5),
+
+		RequestCodeMinIntervalSec: optionalInt("REQUEST_CODE_MIN_INTERVAL_SECONDS", 60),
 	}
 	return c
+}
+
+func optionalFloat(name string, fallback float64) float64 {
+	v := os.Getenv(name)
+	if v == "" {
+		return fallback
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		panic(fmt.Sprintf("env %s is not a number: %q", name, v))
+	}
+	return f
 }
 
 func requireEnv(name string) string {
