@@ -7,19 +7,105 @@ import {
   type ReviewTarget,
 } from '@/composables/useReviewStore';
 import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
+import { ApiError, api, apiToken, setToken, unwrap } from '@/api/client';
 import ReviewSession, { type SessionSummary } from '@/components/explore/ReviewSession.vue';
 import type { DiseaseKey } from '@/types';
 
-// Eventual auth plan: invite-only, reviewers log in with a token. For now the
-// reviewer is a locally-stored profile on this browser — the data shape is
-// unchanged, so only the identity source will flip.
-
 const { status } = useDuckDB();
-const { reviewer, saveReviewer, selectSessionTargets, coverageFor, myReviews } =
-  useReviewStore();
+const {
+  reviewer,
+  saveReviewer,
+  ensureLoaded,
+  logout,
+  selectSessionTargets,
+  coverageFor,
+  myReviews,
+} = useReviewStore();
 const { lens } = useDiseaseLens();
 
-// Profile form — shown when there's no reviewer yet, or when editing.
+// ── Auth gate ───────────────────────────────────────────────────────────────
+// The Review page is the ONE place in the dashboard that requires auth. CDE
+// and CRF browse stays public. Two states this view can land in when the
+// page first opens:
+//   1. No JWT in localStorage → show email-input → code-input flow.
+//   2. JWT present → fetch /v1/me; if 404, fall through to profile setup;
+//      otherwise jump straight to the reviewer landing.
+type AuthStep = 'email' | 'code' | 'authed';
+const authStep = ref<AuthStep>(apiToken.value ? 'authed' : 'email');
+const authLoading = ref(false);
+const authEmail = ref('');
+const authCode = ref('');
+const authError = ref<string | null>(null);
+
+watch(apiToken, (t) => {
+  authStep.value = t ? 'authed' : 'email';
+  if (!t) {
+    authEmail.value = '';
+    authCode.value = '';
+    authError.value = null;
+  }
+});
+
+async function requestCode() {
+  authError.value = null;
+  const email = authEmail.value.trim().toLowerCase();
+  if (!email || !email.includes('@')) {
+    authError.value = 'Please enter a valid email address.';
+    return;
+  }
+  authLoading.value = true;
+  try {
+    await unwrap(api.POST('/v1/auth/request-code', { body: { email } }));
+    authStep.value = 'code';
+  } catch (e) {
+    authError.value = (e as ApiError).message ?? 'Could not send code.';
+  } finally {
+    authLoading.value = false;
+  }
+}
+
+async function verifyCode() {
+  authError.value = null;
+  const email = authEmail.value.trim().toLowerCase();
+  const code = authCode.value.trim();
+  if (!/^\d{6}$/.test(code)) {
+    authError.value = 'Code must be 6 digits.';
+    return;
+  }
+  authLoading.value = true;
+  try {
+    const result = await unwrap(
+      api.POST('/v1/auth/verify-code', { body: { email, code } }),
+    );
+    setToken(result.token);
+    // Token watch in useReviewStore wipes cache, so ensureLoaded refetches.
+    await ensureLoaded();
+    authStep.value = 'authed';
+    if (reviewer.value?.primary_diseases?.length) {
+      lens.value = reviewer.value.primary_diseases[0];
+    }
+  } catch (e) {
+    if (e instanceof ApiError) {
+      authError.value =
+        e.code === 'invalid_code'
+          ? 'Code is incorrect or expired. Try again or request a new one.'
+          : e.message;
+    } else {
+      authError.value = 'Verification failed. Please try again.';
+    }
+  } finally {
+    authLoading.value = false;
+  }
+}
+
+function backToEmail() {
+  authStep.value = 'email';
+  authCode.value = '';
+  authError.value = null;
+}
+
+// ── Profile setup ───────────────────────────────────────────────────────────
+
 type StudyTypePref = 'Clinical' | 'Preclinical' | null;
 const editing = ref(false);
 const form = ref({
@@ -28,7 +114,10 @@ const form = ref({
   primary_study_type: null as StudyTypePref,
 });
 
-onMounted(() => {
+onMounted(async () => {
+  // If we landed with a token, sync from server. ensureLoaded is safe to
+  // call even if the user isn't auth'd — it no-ops without a token.
+  await ensureLoaded();
   if (reviewer.value) {
     form.value = {
       name: reviewer.value.name,
@@ -49,7 +138,7 @@ function startEditing() {
   editing.value = true;
 }
 
-function saveProfile() {
+async function saveProfile() {
   const name = form.value.name.trim();
   if (!name) {
     ElNotification({ type: 'warning', title: 'Name is required' });
@@ -59,15 +148,21 @@ function saveProfile() {
     ElNotification({ type: 'warning', title: 'Pick at least one disease' });
     return;
   }
-  saveReviewer({
-    name,
-    primary_diseases: form.value.primary_diseases,
-    primary_study_type: form.value.primary_study_type,
-  });
-  editing.value = false;
-  // Seed the global lens to match the first picked disease — so other views
-  // (Explore, CDEs) align when the reviewer navigates away.
-  lens.value = form.value.primary_diseases[0];
+  try {
+    await saveReviewer({
+      name,
+      primary_diseases: form.value.primary_diseases,
+      primary_study_type: form.value.primary_study_type,
+    });
+    editing.value = false;
+    lens.value = form.value.primary_diseases[0];
+  } catch (e) {
+    ElNotification({
+      type: 'error',
+      title: 'Could not save profile',
+      message: e instanceof ApiError ? e.message : 'Unexpected error',
+    });
+  }
 }
 
 // ── Session launch ──────────────────────────────────────────────────────────
@@ -214,8 +309,75 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
         </div>
       </header>
 
-      <!-- Empty state: no reviewer profile yet OR editing -->
-      <section v-if="!reviewer || editing" class="card card--setup">
+      <!-- Auth gate (only the Review page requires it; CDE/CRF browse stays public) -->
+      <section v-if="authStep === 'email'" class="card card--setup">
+        <header class="card__head">
+          <h2>Sign in</h2>
+          <p class="subtle">
+            Enter the email address you were invited under. We'll send a 6-digit
+            verification code; reviewers are kept on a curated allowlist.
+          </p>
+        </header>
+        <div class="auth-row">
+          <el-input
+            v-model="authEmail"
+            type="email"
+            placeholder="you@example.org"
+            size="large"
+            class="auth-row__input"
+            :disabled="authLoading"
+            @keyup.enter="requestCode"
+          />
+          <el-button
+            type="primary"
+            size="large"
+            :loading="authLoading"
+            @click="requestCode"
+          >
+            Send code
+          </el-button>
+        </div>
+        <div v-if="authError" class="auth-error">{{ authError }}</div>
+      </section>
+
+      <section v-else-if="authStep === 'code'" class="card card--setup">
+        <header class="card__head">
+          <h2>Enter your code</h2>
+          <p class="subtle">
+            We sent a 6-digit code to <strong>{{ authEmail }}</strong>. It's good
+            for 10 minutes. Check your spam folder if it doesn't arrive.
+          </p>
+        </header>
+        <div class="auth-row">
+          <el-input
+            v-model="authCode"
+            placeholder="123456"
+            size="large"
+            maxlength="6"
+            class="auth-row__input auth-row__input--code"
+            :disabled="authLoading"
+            @keyup.enter="verifyCode"
+          />
+          <el-button
+            type="primary"
+            size="large"
+            :loading="authLoading"
+            @click="verifyCode"
+          >
+            Verify
+          </el-button>
+        </div>
+        <div v-if="authError" class="auth-error">{{ authError }}</div>
+        <div class="auth-row__back">
+          <el-button text size="small" @click="backToEmail">← Different email</el-button>
+        </div>
+      </section>
+
+      <!-- Empty state: no reviewer profile yet OR editing (only after auth) -->
+      <section
+        v-else-if="authStep === 'authed' && (!reviewer || editing)"
+        class="card card--setup"
+      >
         <header class="card__head">
           <h2>{{ reviewer ? 'Edit your reviewer profile' : 'Get started' }}</h2>
           <p class="subtle">
@@ -273,7 +435,7 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
       </section>
 
       <!-- Reviewer landing -->
-      <template v-else-if="reviewer">
+      <template v-else-if="authStep === 'authed' && reviewer">
         <!-- Reviewer identity + scope chip -->
         <section class="reviewer-bar">
           <div class="reviewer-bar__avatar" :title="reviewer.name">
@@ -291,7 +453,10 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
               <span>{{ reviewer?.primary_study_type ?? 'Clinical & preclinical' }}</span>
             </div>
           </div>
-          <el-button text size="small" @click="startEditing">Edit profile</el-button>
+          <div class="reviewer-bar__actions">
+            <el-button text size="small" @click="startEditing">Edit profile</el-button>
+            <el-button text size="small" @click="logout">Sign out</el-button>
+          </div>
         </section>
 
         <!-- Progress stat band — at-a-glance for the reviewer's current scope -->
@@ -523,6 +688,39 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
 }
 
 // Identity bar — compact, profile chip + edit button.
+// Auth gate (email + code steps). Sits inside .card--setup so the layout
+// matches the profile-setup card the reviewer sees right after.
+.auth-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+
+  &__input {
+    flex: 1;
+
+    &--code :deep(input) {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 18px;
+      letter-spacing: 6px;
+      text-align: center;
+    }
+  }
+
+  &__back {
+    margin-top: 10px;
+  }
+}
+
+.auth-error {
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: #fdf3f0;
+  border: 1px solid #f3c0b3;
+  color: #a13a17;
+  border-radius: 2px;
+  font-size: 13px;
+}
+
 .reviewer-bar {
   display: flex;
   align-items: center;

@@ -1,4 +1,17 @@
+// Reviewer profile + review state, backed by the API at api.cde.epilepsy.science.
+//
+// Identity comes from the JWT in localStorage (managed by src/api/client.ts).
+// Profile + reviews are fetched from the server on `ensureLoaded()` and cached
+// in module-level refs so consumers (Vue components) get reactive updates.
+// Every write goes through the API; the local cache is updated optimistically
+// from the response — no localStorage writes anywhere.
+//
+// Session-target selection (`selectSessionTargets`) and target-count queries
+// (`coverageFor`) stay client-side because they read from the parquet via
+// DuckDB-WASM — no need to round-trip those through the API.
+
 import { computed, ref, watch } from 'vue';
+import { api, apiToken, setToken, unwrap } from '@/api/client';
 import { useDuckDB } from '@/composables/useDuckDB';
 import type {
   DiseaseKey,
@@ -9,141 +22,150 @@ import type {
   ReviewTargetType,
 } from '@/types';
 
-const REVIEWER_KEY = 'cde-dashboard:reviewer:v1';
-const REVIEWS_KEY = 'cde-dashboard:reviews:v1';
-
-interface ReviewsStorage {
-  version: 1;
-  reviews: Review[];
+// One-shot cleanup of the v1 localStorage keys. We don't migrate the data
+// (no production reviews exist yet — only test data on dev machines). Just
+// drop the keys silently so they don't sit around forever.
+clearLegacyLocalStorage();
+function clearLegacyLocalStorage() {
+  try {
+    localStorage.removeItem('cde-dashboard:reviewer:v1');
+    localStorage.removeItem('cde-dashboard:reviews:v1');
+  } catch {}
 }
 
-const reviewer = ref<Reviewer | null>(readReviewer());
-const reviews = ref<Review[]>(readReviews());
+// ── Module-level reactive state ─────────────────────────────────────────────
 
-function readReviewer(): Reviewer | null {
-  try {
-    const raw = localStorage.getItem(REVIEWER_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Reviewer;
-    // Migrate v1 profiles to v2:
-    //   primary_disease (single) → primary_diseases (array)
-    //   primary_study_type defaults to null (= both clinical & preclinical)
-    if (!Array.isArray(parsed.primary_diseases)) {
-      parsed.primary_diseases = parsed.primary_disease ? [parsed.primary_disease] : [];
+const reviewer = ref<Reviewer | null>(null);
+const reviews = ref<Review[]>([]);
+const loaded = ref(false);
+const loadingPromise = ref<Promise<void> | null>(null);
+
+/** True iff there's a token and we've fetched the reviewer's state. */
+const isAuthenticated = computed(() => apiToken.value !== null && reviewer.value !== null);
+
+// When the token changes (set via verify-code or cleared on 401), re-sync state.
+watch(apiToken, (t) => {
+  if (!t) {
+    reviewer.value = null;
+    reviews.value = [];
+    loaded.value = false;
+    loadingPromise.value = null;
+    return;
+  }
+  // Fresh token — re-fetch on next ensureLoaded() call.
+  loaded.value = false;
+  loadingPromise.value = null;
+});
+
+// ── Initial fetch ───────────────────────────────────────────────────────────
+
+async function ensureLoaded(): Promise<void> {
+  if (!apiToken.value) return;
+  if (loaded.value) return;
+  if (loadingPromise.value) {
+    await loadingPromise.value;
+    return;
+  }
+  loadingPromise.value = (async () => {
+    try {
+      const me = await unwrap(api.GET('/v1/me'));
+      reviewer.value = profileToReviewer(me);
+      const list = await unwrap(api.GET('/v1/reviews/me'));
+      reviews.value = (list.reviews ?? []).map(serverReviewToLocal);
+    } catch (e) {
+      // 404 on /v1/me = profile not set yet. Caller should show profile setup.
+      const status = (e as { status?: number }).status;
+      if (status === 404) {
+        reviewer.value = null;
+        try {
+          const list = await unwrap(api.GET('/v1/reviews/me'));
+          reviews.value = (list.reviews ?? []).map(serverReviewToLocal);
+        } catch {}
+      } else if (status === 401) {
+        // Token expired/revoked — client.ts already cleared apiToken.
+        reviewer.value = null;
+        reviews.value = [];
+      } else {
+        throw e;
+      }
+    } finally {
+      loaded.value = true;
     }
-    if (parsed.primary_study_type === undefined) parsed.primary_study_type = null;
-    return parsed;
-  } catch {
-    return null;
-  }
-}
-
-function readReviews(): Review[] {
-  try {
-    const raw = localStorage.getItem(REVIEWS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ReviewsStorage;
-    if (parsed.version !== 1 || !Array.isArray(parsed.reviews)) return [];
-    // Backfill `flags` on older records persisted before the field existed.
-    return parsed.reviews.map((r) => ({
-      ...r,
-      flags: Array.isArray((r as Review).flags) ? (r as Review).flags : [],
-    }));
-  } catch {
-    return [];
-  }
-}
-
-watch(
-  reviewer,
-  (r) => {
-    if (r) localStorage.setItem(REVIEWER_KEY, JSON.stringify(r));
-    else localStorage.removeItem(REVIEWER_KEY);
-  },
-  { deep: true },
-);
-
-watch(
-  reviews,
-  (list) => {
-    const payload: ReviewsStorage = { version: 1, reviews: list };
-    localStorage.setItem(REVIEWS_KEY, JSON.stringify(payload));
-  },
-  { deep: true },
-);
-
-function diseaseColumn(d: DiseaseKey): string {
-  return `disease_${d}`;
+  })();
+  await loadingPromise.value;
 }
 
 // ── Reviewer management ─────────────────────────────────────────────────────
 
-function saveReviewer(partial: Omit<Reviewer, 'id' | 'created_at'>): Reviewer {
-  const existing = reviewer.value;
-  const rec: Reviewer = {
-    id: existing?.id ?? crypto.randomUUID(),
-    created_at: existing?.created_at ?? new Date().toISOString(),
-    ...partial,
-  };
-  reviewer.value = rec;
-  return rec;
+async function saveReviewer(partial: {
+  name: string;
+  primary_diseases: DiseaseKey[];
+  primary_study_type: 'Clinical' | 'Preclinical' | null;
+}): Promise<Reviewer> {
+  const me = await unwrap(
+    api.PUT('/v1/me', {
+      body: {
+        name: partial.name,
+        primary_diseases: partial.primary_diseases,
+        primary_study_type: partial.primary_study_type ?? '',
+      },
+    }),
+  );
+  const next = profileToReviewer({ ...me, role: reviewer.value?.role });
+  reviewer.value = next;
+  return next;
 }
 
-function clearReviewer() {
-  reviewer.value = null;
+/** Drop the JWT and clear all cached state. */
+function logout(): void {
+  setToken(null);
+}
+
+/** GDPR delete — removes profile, reviews, history server-side, then logs out. */
+async function deleteAccount(): Promise<void> {
+  await unwrap(api.DELETE('/v1/me'));
+  logout();
 }
 
 // ── Review CRUD ─────────────────────────────────────────────────────────────
 
-function submitReview(partial: {
+async function submitReview(partial: {
   target_type: ReviewTargetType;
   target_ref: string;
   disease: DiseaseKey;
   classification: ReviewClassification;
   comment?: string | null;
   flags?: ReviewFlag[];
-}): Review | null {
-  if (!reviewer.value) return null;
-  const now = new Date().toISOString();
-  const flags = partial.flags ?? [];
-  // One review per (reviewer, target, disease) — upsert.
-  const idx = reviews.value.findIndex(
-    (r) =>
-      r.reviewer_id === reviewer.value!.id &&
-      r.target_type === partial.target_type &&
-      r.target_ref === partial.target_ref &&
-      r.disease === partial.disease,
+}): Promise<Review | null> {
+  if (!apiToken.value) return null;
+  const saved = await unwrap(
+    api.POST('/v1/reviews', {
+      body: {
+        target_type: partial.target_type,
+        target_ref: partial.target_ref,
+        disease: partial.disease,
+        classification: partial.classification,
+        comment: partial.comment ?? '',
+        flags: (partial.flags ?? []) as string[],
+      },
+    }),
   );
-  if (idx >= 0) {
-    const existing = reviews.value[idx];
-    const next: Review = {
-      ...existing,
-      classification: partial.classification,
-      comment: partial.comment ?? null,
-      flags,
-      updated_at: now,
-      sync_status: 'local',
-    };
-    const list = [...reviews.value];
-    list[idx] = next;
-    reviews.value = list;
-    return next;
+  const local = serverReviewToLocal(saved);
+  // Upsert in cache — keyed by (target_type, target_ref, disease).
+  const i = reviews.value.findIndex(
+    (r) =>
+      r.target_type === local.target_type &&
+      r.target_ref === local.target_ref &&
+      r.disease === local.disease,
+  );
+  if (i >= 0) {
+    const next = [...reviews.value];
+    next[i] = local;
+    reviews.value = next;
+  } else {
+    reviews.value = [...reviews.value, local];
   }
-  const rec: Review = {
-    id: crypto.randomUUID(),
-    reviewer_id: reviewer.value.id,
-    target_type: partial.target_type,
-    target_ref: partial.target_ref,
-    disease: partial.disease,
-    classification: partial.classification,
-    comment: partial.comment ?? null,
-    flags,
-    created_at: now,
-    updated_at: now,
-    sync_status: 'local',
-  };
-  reviews.value = [...reviews.value, rec];
-  return rec;
+  return local;
 }
 
 function findReview(
@@ -151,23 +173,15 @@ function findReview(
   target_ref: string,
   disease: DiseaseKey,
 ): Review | undefined {
-  if (!reviewer.value) return undefined;
   return reviews.value.find(
     (r) =>
-      r.reviewer_id === reviewer.value!.id &&
       r.target_type === target_type &&
       r.target_ref === target_ref &&
       r.disease === disease,
   );
 }
 
-function deleteReview(reviewId: string): boolean {
-  const before = reviews.value.length;
-  reviews.value = reviews.value.filter((r) => r.id !== reviewId);
-  return reviews.value.length < before;
-}
-
-// ── Session target selection ─────────────────────────────────────────────────
+// ── Session target selection (client-side over the parquet) ────────────────
 
 export interface ReviewTarget {
   type: ReviewTargetType;
@@ -189,17 +203,15 @@ export interface SessionFilter {
   includeReviewed?: boolean;
 }
 
-/** SQL fragment to filter cde_full by study_type. The column is comma-joined
- *  on the canonical view (e.g. "Clinical,Preclinical"); we pad and substring-
- *  match so single-typed and dual-typed CDEs both pass when their type matches. */
+function diseaseColumn(d: DiseaseKey): string {
+  return `disease_${d}`;
+}
+
 function studyTypeClause(studyType: SessionFilter['studyType']): string {
   if (!studyType) return '';
   return `AND ',' || COALESCE(study_types, '') || ',' LIKE '%,${studyType},%'`;
 }
 
-/** Pick N review targets. Excludes anything the current reviewer has already
- *  reviewed for the chosen disease. Caps at 5 per domain for cross-domain
- *  spread. Random tie-break keeps repeat sessions fresh. */
 async function selectSessionTargets(
   filter: SessionFilter,
 ): Promise<ReviewTarget[]> {
@@ -208,12 +220,7 @@ async function selectSessionTargets(
   const diseaseCol = diseaseColumn(filter.disease);
   const stClause = studyTypeClause(filter.studyType);
 
-  // Bundle candidates: a bundle qualifies if any member CDE matches the disease
-  // + (optionally) the study type. Deduplicate by bundle_name.
-  const bundleRows = await query<{
-    bundle_name: string;
-    cde_domain: string | null;
-  }>(
+  const bundleRows = await query<{ bundle_name: string; cde_domain: string | null }>(
     `SELECT DISTINCT bundle_name, any_value(cde_domain) AS cde_domain
      FROM cde_full
      WHERE ${diseaseCol} = 'Y'
@@ -221,12 +228,7 @@ async function selectSessionTargets(
        ${stClause}
      GROUP BY bundle_name`,
   );
-
-  // Standalone CDE candidates.
-  const cdeRows = await query<{
-    cde_name: string;
-    cde_domain: string | null;
-  }>(
+  const cdeRows = await query<{ cde_name: string; cde_domain: string | null }>(
     `SELECT cde_name, cde_domain
      FROM cde_full
      WHERE ${diseaseCol} = 'Y'
@@ -234,12 +236,11 @@ async function selectSessionTargets(
        ${stClause}`,
   );
 
+  // Local cache covers what /v1/reviews/me returned at ensureLoaded time;
+  // submitReview keeps it fresh as new reviews land.
   const reviewed = new Set(
     reviews.value
-      .filter(
-        (r) =>
-          r.reviewer_id === reviewer.value!.id && r.disease === filter.disease,
-      )
+      .filter((r) => r.disease === filter.disease)
       .map((r) => `${r.target_type}:${r.target_ref}`),
   );
 
@@ -261,8 +262,6 @@ async function selectSessionTargets(
     ? allCandidates
     : allCandidates.filter((t) => !reviewed.has(`${t.type}:${t.ref}`));
 
-  // Shuffle first, then apply per-domain cap so the session spans multiple
-  // domains rather than dumping 20 from one domain.
   shuffle(candidates);
   const perDomainCap = 5;
   const byDomain = new Map<string, number>();
@@ -301,46 +300,94 @@ async function coverageFor(
   const { query } = useDuckDB();
   const diseaseCol = diseaseColumn(disease);
   const stClause = studyTypeClause(studyType);
-  const params: unknown[] = [];
 
   const bundleTotal = await query<{ n: number }>(
     `SELECT COUNT(DISTINCT bundle_name) AS n
      FROM cde_full
      WHERE ${diseaseCol} = 'Y' AND bundle_id IS NOT NULL ${stClause}`,
-    params,
   );
   const cdeTotal = await query<{ n: number }>(
     `SELECT COUNT(*) AS n
      FROM cde_full
      WHERE ${diseaseCol} = 'Y' AND bundle_id IS NULL ${stClause}`,
-    params,
   );
   const total = Number(bundleTotal[0]?.n ?? 0) + Number(cdeTotal[0]?.n ?? 0);
-
-  const reviewed = reviews.value.filter(
-    (r) => r.reviewer_id === reviewer.value!.id && r.disease === disease,
-  ).length;
-
+  const reviewed = reviews.value.filter((r) => r.disease === disease).length;
   return { reviewed, total };
 }
 
-export function useReviewStore() {
-  const myReviews = computed(() =>
-    reviewer.value
-      ? reviews.value.filter((r) => r.reviewer_id === reviewer.value!.id)
-      : [],
-  );
+// ── API ↔ local model adapters ──────────────────────────────────────────────
 
+interface ServerProfile {
+  email: string;
+  name: string;
+  primary_diseases?: DiseaseKey[] | string[];
+  // The OpenAPI schema marks this nullable + with an "" enum value (= both),
+  // so the generated TS type widens to `'Clinical' | 'Preclinical' | '' | null
+  // | undefined`. Accept all of them; narrow in the converter.
+  primary_study_type?: 'Clinical' | 'Preclinical' | '' | null;
+  created_at?: string;
+  updated_at?: string;
+  role?: 'rev' | 'admin';
+}
+interface ServerReview {
+  target_type: 'cde' | 'bundle';
+  target_ref: string;
+  disease: DiseaseKey | string;
+  classification: ReviewClassification | string;
+  comment?: string;
+  flags?: string[];
+  version?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+function profileToReviewer(p: ServerProfile): Reviewer {
+  return {
+    email: p.email,
+    name: p.name,
+    primary_diseases: (p.primary_diseases ?? []) as DiseaseKey[],
+    primary_study_type:
+      p.primary_study_type === 'Clinical' || p.primary_study_type === 'Preclinical'
+        ? p.primary_study_type
+        : null,
+    created_at: p.created_at,
+    updated_at: p.updated_at,
+    role: p.role,
+  };
+}
+
+function serverReviewToLocal(r: ServerReview): Review {
+  return {
+    target_type: r.target_type,
+    target_ref: r.target_ref,
+    disease: r.disease as DiseaseKey,
+    classification: r.classification as ReviewClassification,
+    comment: r.comment ?? null,
+    flags: (r.flags ?? []) as ReviewFlag[],
+    version: r.version ?? 1,
+    created_at: r.created_at,
+    updated_at: r.updated_at ?? new Date().toISOString(),
+  };
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
+
+export function useReviewStore() {
   return {
     reviewer: computed(() => reviewer.value),
+    isAuthenticated,
+    loaded: computed(() => loaded.value),
+
+    ensureLoaded,
     saveReviewer,
-    clearReviewer,
+    logout,
+    deleteAccount,
 
     reviews: computed(() => reviews.value),
-    myReviews,
+    myReviews: computed(() => reviews.value),
     submitReview,
     findReview,
-    deleteReview,
 
     selectSessionTargets,
     coverageFor,

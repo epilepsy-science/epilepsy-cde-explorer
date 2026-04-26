@@ -185,7 +185,7 @@ async function classify(tier: ReviewClassification) {
   if (!t || submitting.value) return;
   submitting.value = true;
   try {
-    submitReview({
+    await submitReview({
       target_type: t.type,
       target_ref: t.ref,
       disease: props.disease,

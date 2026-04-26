@@ -184,21 +184,21 @@ export type DiseaseKey =
   | 'agnostic';
 
 export interface Reviewer {
-  id: string;
+  /** Verified email — canonical identity (was `id` in the localStorage era). */
+  email: string;
   name: string;
   /**
    * Diseases this reviewer is qualified to review. Sessions cycle through them
    * one at a time via a "Next disease" button.
-   * Older profiles stored a single `primary_disease`; the store migrates them.
    */
   primary_diseases: DiseaseKey[];
   /** Reviewer's preferred study context. null = both clinical & preclinical. */
   primary_study_type: 'Clinical' | 'Preclinical' | null;
-  /** @deprecated kept for backwards compat with v1 profiles in localStorage. */
-  primary_disease?: DiseaseKey;
-  /** @deprecated kept for backwards compat with v1 profiles in localStorage. */
-  primary_domain?: string | null;
-  created_at: string;
+  /** Server-managed timestamps. */
+  created_at?: string;
+  updated_at?: string;
+  /** "rev" or "admin" — populated from /v1/me + the verify-code response. */
+  role?: 'rev' | 'admin';
 }
 
 export type ReviewTargetType = 'bundle' | 'cde';
@@ -268,8 +268,6 @@ export const REVIEW_FLAGS: Array<{
 ];
 
 export interface Review {
-  id: string;
-  reviewer_id: string;
   target_type: ReviewTargetType;
   /** bundle_name for bundles, cde_name for standalone CDEs. */
   target_ref: string;
@@ -278,8 +276,8 @@ export interface Review {
   comment: string | null;
   /** Structured revision flags — which aspects of this element need fixing. */
   flags: ReviewFlag[];
-  created_at: string;
+  /** Bumps on every amend. Server-managed. */
+  version: number;
+  created_at?: string;
   updated_at: string;
-  /** Placeholder for eventual backend sync. */
-  sync_status: 'local' | 'synced';
 }
