@@ -23,12 +23,23 @@ const ROOT = resolve(__dirname, '..');
 const OUT = resolve(ROOT, 'public/data');
 const TMP = resolve(tmpdir(), 'cde-prep');
 
-// Default precedence when scanning: demo first (more curated), NINDS second.
-// The raw pennsieve-discover export has a data-quality issue (junk
+// Default load order. Source order matters for canonical-key reconciliation:
+// when two sources contribute records that collapse to the same canonical
+// key, the first-listed source wins for display fields. NT-PRECEDS demo is
+// the most curated (bundles + classifications), so it leads. NINDS Epilepsy
+// has the largest disease-specific catalog. NLM and PTE Clinical follow
+// because they overlap with NINDS for some CDEs.
+//
+// The pennsieve-discover export has a data-quality issue (junk
 // `nlm_identifier` values like "UMLS|UMLS|UMLS") that prevents the
 // canonical-key reconciler from matching it cleanly, so it's opt-in only —
 // pass it explicitly on the CLI when you want it included.
-const DEFAULT_SOURCE_DIRS = ['data/demo', 'data/ninds-epilepsy'];
+const DEFAULT_SOURCE_DIRS = [
+  'data/demo',
+  'data/ninds-epilepsy',
+  'data/nlm-ninds-disease-epilepsy',
+  'data/pte-clinical',
+];
 
 const cliArgs = process.argv.slice(2);
 const sourceDirs = (cliArgs.length ? cliArgs : DEFAULT_SOURCE_DIRS)
