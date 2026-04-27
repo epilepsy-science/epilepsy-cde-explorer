@@ -8,7 +8,6 @@ import ClassificationPill from '@/components/ClassificationPill.vue';
 import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
 import {
   CLASSIFICATION_OPTIONS,
-  DATA_TYPES,
   isActiveTier,
   type CdeRow,
 } from '@/types';
@@ -32,7 +31,6 @@ function csvParam(v: RawQueryValue): string[] {
 
 // Filters — seed from URL so drill-through links from /explore land here pre-filtered.
 const search = ref<string>(typeof route.query.q === 'string' ? route.query.q : '');
-const dataType = ref<string[]>(csvParam(route.query.type));
 const disease = ref<string[]>(csvParam(route.query.disease));
 const classTier = ref<string[]>(csvParam(route.query.tier));
 const bundleFilter = ref<string | null>(
@@ -51,15 +49,6 @@ const subdomainFilter = ref<string | null>(
 const categoryFilter = ref<string | null>(
   typeof route.query.category === 'string' ? route.query.category : null,
 );
-// 'all' | 'mapped' | 'unmapped' — filters by whether the CDE has at least
-// one row in cde_represents_concept. URL-controlled so deep links from the
-// concept page (e.g., "show only unmapped CDEs") work.
-const conceptFilter = ref<'all' | 'mapped' | 'unmapped'>(
-  route.query.concept === 'mapped' || route.query.concept === 'unmapped'
-    ? (route.query.concept as 'mapped' | 'unmapped')
-    : 'all',
-);
-
 const rows = ref<CdeRow[]>([]);
 const total = ref(0);
 const loading = ref(false);
@@ -122,12 +111,6 @@ function buildWhere(): { where: string; params: unknown[] } {
     );
     params.push(q, q, q, q);
   }
-  if (dataType.value.length) {
-    clauses.push(
-      `cde_data_type IN (${dataType.value.map(() => '?').join(',')})`,
-    );
-    params.push(...dataType.value);
-  }
   if (disease.value.length) {
     const diseaseClauses = disease.value.map((d) => {
       switch (d) {
@@ -169,11 +152,6 @@ function buildWhere(): { where: string; params: unknown[] } {
   if (cdeIdFilter.value) {
     clauses.push(`cde_id = ?`);
     params.push(cdeIdFilter.value);
-  }
-  if (conceptFilter.value === 'mapped') {
-    clauses.push(`cde_id IN (SELECT cde_id FROM cde_represents_concept)`);
-  } else if (conceptFilter.value === 'unmapped') {
-    clauses.push(`cde_id NOT IN (SELECT cde_id FROM cde_represents_concept)`);
   }
   if (originFilter.value.length) {
     // origin_keys is a comma-joined list of source keys; match any of the
@@ -529,7 +507,7 @@ watch(status, async (s) => {
 });
 
 watch(
-  [search, dataType, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, categoryFilter, originFilter, studyTypeFilter, conceptFilter, pageSize, viewMode],
+  [search, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, categoryFilter, originFilter, studyTypeFilter, pageSize, viewMode],
   () => {
     page.value = 1;
     load();
@@ -710,17 +688,6 @@ watch(originFilter, (selected) => {
       </el-input>
 
       <el-select
-        v-model="dataType"
-        multiple
-        collapse-tags
-        collapse-tags-tooltip
-        placeholder="Data type"
-        class="filter-select"
-      >
-        <el-option v-for="t in DATA_TYPES" :key="t" :label="t" :value="t" />
-      </el-select>
-
-      <el-select
         v-model="disease"
         multiple
         collapse-tags
@@ -777,16 +744,6 @@ watch(originFilter, (selected) => {
         <el-option label="All studies" value="all" />
         <el-option label="Clinical" value="Clinical" />
         <el-option label="Preclinical" value="Preclinical" />
-      </el-select>
-
-      <el-select
-        v-model="conceptFilter"
-        placeholder="Concept mapping"
-        class="filter-select"
-      >
-        <el-option label="Any concept status" value="all" />
-        <el-option label="Concept-mapped" value="mapped" />
-        <el-option label="Unmapped" value="unmapped" />
       </el-select>
 
     </div>
