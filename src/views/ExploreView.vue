@@ -150,24 +150,29 @@ function setStudyType(v: StudyTypeFilter) {
 
 // Classic underline-tab strip. A horizontal rule under the row gives the
 // inactive tabs a baseline; the active tab paints a thicker green stripe
-// over its segment of that baseline. Single bold word per tab, no chrome
-// otherwise.
+// over its segment of that baseline. Single bold word per tab.
+//
+// Sizing intentionally generous: 16px text + 12px vertical padding so the
+// strip reads as primary navigation, not meta-chrome. Inactive labels at
+// $gray_5 (closer to body text) — the contrast between gray and green is
+// what signals "tabs", not the strip itself.
 .view-tabs {
   display: flex;
-  gap: 1.5rem;
+  gap: 2rem;
   border-bottom: 1px solid $lineColor2;
+  margin-bottom: 0.5rem;
 
   &__tab {
     background: transparent;
     border: none;
-    padding: 8px 2px;
+    padding: 12px 4px;
     margin-bottom: -1px; // overlap the row's bottom border so active underline replaces it
     cursor: pointer;
     font-family: inherit;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
-    color: $gray_4;
-    border-bottom: 2px solid transparent;
+    color: $gray_5;
+    border-bottom: 3px solid transparent;
     transition: color 80ms ease, border-color 80ms ease;
 
     &:hover {
