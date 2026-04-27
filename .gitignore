@@ -4,6 +4,11 @@ api/dist
 .DS_Store
 *.log
 
+# Vite local env files (per Vite docs: never commit)
+.env
+.env.local
+.env.*.local
+
 # IDE
 .idea/
 .vscode/

@@ -51,3 +51,13 @@ variable "subdomain_prefix" {
   default     = "cde"
   description = "Subdomain prefix attached under root_domain — e.g. 'cde' → cde.epilepsy.science."
 }
+
+# Public reCAPTCHA v3 site key, baked into the dashboard bundle by Vite at
+# build time. Tied to the cde.epilepsy.science domain registered in the
+# Google reCAPTCHA admin console. Safe to commit (it's the public half;
+# the secret half lives in SSM as recaptcha-secret).
+variable "recaptcha_site_key" {
+  type        = string
+  default     = "6LeIAMwsAAAAAHC43_KP8uXnyLg8RU9cbt_9YoH7"
+  description = "Google reCAPTCHA v3 site key for cde.epilepsy.science. Public; baked into the JS bundle."
+}

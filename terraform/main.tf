@@ -25,6 +25,12 @@ resource "aws_amplify_app" "this" {
   enable_branch_auto_build    = true
   enable_branch_auto_deletion = false
   enable_auto_branch_creation = false
+
+  # Build-time env vars Vite reads into import.meta.env. Anything secret
+  # belongs in SSM + Lambda env (see terraform/api/), not here.
+  environment_variables = {
+    VITE_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+  }
 }
 
 resource "aws_amplify_branch" "main" {
