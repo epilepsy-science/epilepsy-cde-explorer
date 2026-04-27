@@ -89,9 +89,12 @@ type Review struct {
 	PK string `dynamodbav:"PK"`
 	SK string `dynamodbav:"SK"`
 
-	// GSI1 keys for the target_idx index.
-	PK1 string `dynamodbav:"PK1"` // `<type>#<ref>#<disease>`
-	SK1 string `dynamodbav:"SK1"` // email
+	// GSI1 keys for the target_idx index. Empty on history rows so they
+	// don't appear in the index — `omitempty` is load-bearing: DynamoDB
+	// rejects empty strings on indexed attributes with a ValidationException
+	// that aborts the whole TransactWrite.
+	PK1 string `dynamodbav:"PK1,omitempty"` // `<type>#<ref>#<disease>`
+	SK1 string `dynamodbav:"SK1,omitempty"` // email
 
 	TargetType     string   `dynamodbav:"target_type"` // "cde" | "bundle"
 	TargetRef      string   `dynamodbav:"target_ref"`

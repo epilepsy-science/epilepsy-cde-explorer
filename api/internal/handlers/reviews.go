@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -108,6 +109,7 @@ func PostReview(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Serv
 			{Put: &dynamodbtypes.Put{TableName: aws.String(s.Cfg.Table), Item: historyItem}},
 		},
 	}); err != nil {
+		slog.Error("review TransactWrite failed", "email", caller.Email, "target_type", body.TargetType, "target_ref", body.TargetRef, "disease", body.Disease, "err", err)
 		return nil, apihttp.ServerError("Could not write review")
 	}
 
