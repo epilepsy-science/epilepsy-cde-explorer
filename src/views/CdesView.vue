@@ -51,6 +51,14 @@ const subdomainFilter = ref<string | null>(
 const categoryFilter = ref<string | null>(
   typeof route.query.category === 'string' ? route.query.category : null,
 );
+// 'all' | 'mapped' | 'unmapped' — filters by whether the CDE has at least
+// one row in cde_represents_concept. URL-controlled so deep links from the
+// concept page (e.g., "show only unmapped CDEs") work.
+const conceptFilter = ref<'all' | 'mapped' | 'unmapped'>(
+  route.query.concept === 'mapped' || route.query.concept === 'unmapped'
+    ? (route.query.concept as 'mapped' | 'unmapped')
+    : 'all',
+);
 
 const rows = ref<CdeRow[]>([]);
 const total = ref(0);
@@ -60,7 +68,7 @@ const pageSize = ref(20);
 
 const selectedCde = ref<CdeRow | null>(null);
 const drawerOpen = ref(false);
-const viewMode = ref<'grouped' | 'flat'>('grouped');
+const viewMode = ref<'grouped' | 'flat' | 'concept'>('grouped');
 // True iff the active dataset has any bundles at all. When false, the grouped
 // view would collapse every CDE into a single "Unbundled" parent, which is
 // bad UX — so we hide the toggle and force flat.
@@ -80,7 +88,25 @@ interface BundleHeader {
   children: Array<CdeRow & { kind: 'cde'; id: string }>;
   hasChildren: boolean;
 }
-type TreeRow = BundleHeader | (CdeRow & { kind: 'cde'; id: string });
+// Concept group header — same outer shape as BundleHeader so the existing
+// tree expansion / pagination machinery treats them uniformly. The
+// rendering branches on `kind` to show concept-specific text + link.
+interface ConceptHeader {
+  kind: 'concept';
+  id: string;
+  /** null for the synthetic "Unmapped" group. */
+  concept_id: string | null;
+  concept_label: string;
+  concept_source: string | null;
+  concept_identifier: string | null;
+  concept_cui: string | null;
+  cde_count: number;
+  tier_summary: Record<string, number>;
+  children: Array<CdeRow & { kind: 'cde'; id: string }>;
+  hasChildren: boolean;
+}
+type HeaderRow = BundleHeader | ConceptHeader;
+type TreeRow = HeaderRow | (CdeRow & { kind: 'cde'; id: string });
 
 const treeRows = ref<TreeRow[]>([]);
 const tableRef = ref<any>(null);
@@ -143,6 +169,11 @@ function buildWhere(): { where: string; params: unknown[] } {
   if (cdeIdFilter.value) {
     clauses.push(`cde_id = ?`);
     params.push(cdeIdFilter.value);
+  }
+  if (conceptFilter.value === 'mapped') {
+    clauses.push(`cde_id IN (SELECT cde_id FROM cde_represents_concept)`);
+  } else if (conceptFilter.value === 'unmapped') {
+    clauses.push(`cde_id NOT IN (SELECT cde_id FROM cde_represents_concept)`);
   }
   if (originFilter.value.length) {
     // origin_keys is a comma-joined list of source keys; match any of the
@@ -329,11 +360,157 @@ function summarizeTiers(cdes: CdeRow[]): Record<string, number> {
   return out;
 }
 
+/**
+ * Concept mode: paginate by CONCEPT.
+ * Each header row is one concept (or the synthetic "Unmapped" group for
+ * CDEs that have no row in cde_represents_concept). Children are the CDEs
+ * that point at the concept. Same pagination invariants as loadGrouped.
+ */
+async function loadByConcept() {
+  const { where, params } = buildWhere();
+
+  // The user's filter clauses (built by buildWhere()) reference unqualified
+  // columns like `cde_id`, `bundle_id`, etc. These exist on cde_full but
+  // also on cde_represents_concept — so we evaluate the filter inside a CTE
+  // over cde_full alone, then JOIN downstream against that single-table
+  // filter result. This keeps every column reference unambiguous.
+  //
+  // We bind the filter params twice (for count and concept-page queries),
+  // so each call repeats the same params array.
+  const ctePrefix = `WITH matching_cdes AS (SELECT cde_id FROM cde_full ${where})`;
+
+  const [conceptCountRows, unmappedRows] = await Promise.all([
+    query<{ n: number }>(
+      `${ctePrefix}
+       SELECT count(DISTINCT r.concept_id) AS n
+       FROM cde_represents_concept r
+       WHERE r.cde_id IN (SELECT cde_id FROM matching_cdes)`,
+      params,
+    ),
+    query<{ n: number }>(
+      `${ctePrefix}
+       SELECT count(*) AS n
+       FROM matching_cdes
+       WHERE cde_id NOT IN (SELECT cde_id FROM cde_represents_concept)`,
+      params,
+    ),
+  ]);
+  const conceptCount = Number(conceptCountRows[0]?.n ?? 0);
+  const unmappedCount = Number(unmappedRows[0]?.n ?? 0);
+  total.value = conceptCount + (unmappedCount > 0 ? 1 : 0);
+
+  const offset = (page.value - 1) * pageSize.value;
+  const conceptPage = await query<{
+    concept_id: string;
+    source: string;
+    identifier: string;
+    cui: string | null;
+    preferred_label: string | null;
+    n: number;
+  }>(
+    `${ctePrefix}
+     SELECT
+       c.id AS concept_id,
+       c.source,
+       c.identifier,
+       c.cui,
+       c.preferred_label,
+       count(DISTINCT r.cde_id) AS n
+     FROM concept c
+     JOIN cde_represents_concept r ON r.concept_id = c.id
+     WHERE r.cde_id IN (SELECT cde_id FROM matching_cdes)
+     GROUP BY c.id, c.source, c.identifier, c.cui, c.preferred_label
+     ORDER BY c.source, c.identifier
+     LIMIT ${pageSize.value} OFFSET ${offset}`,
+    params,
+  );
+
+  const totalPages = Math.max(1, Math.ceil(total.value / pageSize.value));
+  const includeUnmapped = unmappedCount > 0 && page.value === totalPages;
+
+  const conceptIds = conceptPage.map((c) => c.concept_id);
+  const children: Array<CdeRow & { _concept_id: string }> = [];
+  if (conceptIds.length) {
+    const placeholders = conceptIds.map(() => '?').join(',');
+    const childRows = await query<CdeRow & { _concept_id: string }>(
+      `${ctePrefix}
+       SELECT f.*, r.concept_id AS _concept_id
+       FROM cde_full f
+       JOIN cde_represents_concept r ON r.cde_id = f.cde_id
+       WHERE f.cde_id IN (SELECT cde_id FROM matching_cdes)
+         AND r.concept_id IN (${placeholders})
+       ORDER BY r.concept_id, f.cde_name`,
+      [...params, ...conceptIds],
+    );
+    children.push(...childRows);
+  }
+
+  let unmappedChildren: CdeRow[] = [];
+  if (includeUnmapped) {
+    unmappedChildren = await query<CdeRow>(
+      `${ctePrefix}
+       SELECT f.* FROM cde_full f
+       WHERE f.cde_id IN (SELECT cde_id FROM matching_cdes)
+         AND f.cde_id NOT IN (SELECT cde_id FROM cde_represents_concept)
+       ORDER BY f.cde_name`,
+      params,
+    );
+  }
+
+  const byConcept = new Map<string, CdeRow[]>();
+  for (const c of children) {
+    if (!byConcept.has(c._concept_id)) byConcept.set(c._concept_id, []);
+    byConcept.get(c._concept_id)!.push(c);
+  }
+
+  const tree: TreeRow[] = conceptPage.map((c) => {
+    const kids = byConcept.get(c.concept_id) ?? [];
+    return {
+      kind: 'concept' as const,
+      id: `cn:${c.concept_id}`,
+      concept_id: c.concept_id,
+      concept_label:
+        c.preferred_label?.trim() || `${c.source}:${c.identifier}`,
+      concept_source: c.source,
+      concept_identifier: c.identifier,
+      concept_cui: c.cui,
+      cde_count: kids.length,
+      tier_summary: summarizeTiers(kids),
+      children: kids.map((k) => ({ ...k, kind: 'cde' as const, id: `c:${k.cde_id}` })),
+      hasChildren: kids.length > 0,
+    };
+  });
+
+  if (includeUnmapped && unmappedChildren.length) {
+    tree.push({
+      kind: 'concept',
+      id: 'cn:__unmapped__',
+      concept_id: null,
+      concept_label: 'Unmapped',
+      concept_source: null,
+      concept_identifier: null,
+      concept_cui: null,
+      cde_count: unmappedChildren.length,
+      tier_summary: summarizeTiers(unmappedChildren),
+      children: unmappedChildren.map((c) => ({
+        ...c,
+        kind: 'cde' as const,
+        id: `c:${c.cde_id}`,
+      })),
+      hasChildren: unmappedChildren.length > 0,
+    });
+  }
+
+  treeRows.value = tree;
+  rows.value = [];
+}
+
 async function load() {
   if (status.value !== 'ready') return;
   loading.value = true;
   try {
     if (viewMode.value === 'grouped') await loadGrouped();
+    else if (viewMode.value === 'concept') await loadByConcept();
     else await loadFlat();
   } finally {
     loading.value = false;
@@ -352,7 +529,7 @@ watch(status, async (s) => {
 });
 
 watch(
-  [search, dataType, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, categoryFilter, originFilter, studyTypeFilter, pageSize, viewMode],
+  [search, dataType, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, categoryFilter, originFilter, studyTypeFilter, conceptFilter, pageSize, viewMode],
   () => {
     page.value = 1;
     load();
@@ -362,9 +539,15 @@ watch(
 function isBundleRow(row: TreeRow): row is BundleHeader {
   return (row as BundleHeader).kind === 'bundle';
 }
+function isConceptRow(row: TreeRow): row is ConceptHeader {
+  return (row as ConceptHeader).kind === 'concept';
+}
+function isHeaderRow(row: TreeRow): row is HeaderRow {
+  return isBundleRow(row) || isConceptRow(row);
+}
 
 function handleRowClick(row: TreeRow) {
-  if (viewMode.value === 'grouped' && isBundleRow(row)) {
+  if (isHeaderRow(row)) {
     // Click on a parent row toggles expansion.
     tableRef.value?.toggleRowExpansion?.(row);
     return;
@@ -375,7 +558,7 @@ function handleRowClick(row: TreeRow) {
 
 function expandAll() {
   for (const r of treeRows.value) {
-    if (isBundleRow(r) && r.hasChildren) {
+    if (isHeaderRow(r) && r.hasChildren) {
       tableRef.value?.toggleRowExpansion?.(r, true);
     }
   }
@@ -383,16 +566,16 @@ function expandAll() {
 
 function collapseAll() {
   for (const r of treeRows.value) {
-    if (isBundleRow(r) && r.hasChildren) {
+    if (isHeaderRow(r) && r.hasChildren) {
       tableRef.value?.toggleRowExpansion?.(r, false);
     }
   }
 }
 
-// Row className so we can style bundle headers differently from leaf CDE rows.
+// Row className so we can style header rows differently from leaf CDE rows.
 function rowClass({ row }: { row: TreeRow }) {
-  if (viewMode.value !== 'grouped') return '';
-  return isBundleRow(row) ? 'row-bundle-header' : 'row-cde-leaf';
+  if (viewMode.value === 'flat') return '';
+  return isHeaderRow(row) ? 'row-bundle-header' : 'row-cde-leaf';
 }
 
 watch(page, () => load());
@@ -596,6 +779,16 @@ watch(originFilter, (selected) => {
         <el-option label="Preclinical" value="Preclinical" />
       </el-select>
 
+      <el-select
+        v-model="conceptFilter"
+        placeholder="Concept mapping"
+        class="filter-select"
+      >
+        <el-option label="Any concept status" value="all" />
+        <el-option label="Concept-mapped" value="mapped" />
+        <el-option label="Unmapped" value="unmapped" />
+      </el-select>
+
     </div>
 
     <div class="cdes-view__view-strip">
@@ -603,12 +796,15 @@ watch(originFilter, (selected) => {
         <el-radio-button value="grouped">
           <el-icon><Grid /></el-icon>&nbsp;Grouped by bundle
         </el-radio-button>
+        <el-radio-button value="concept">
+          <el-icon><Connection /></el-icon>&nbsp;Grouped by concept
+        </el-radio-button>
         <el-radio-button value="flat">
           <el-icon><List /></el-icon>&nbsp;Flat list
         </el-radio-button>
       </el-radio-group>
 
-      <div v-if="viewMode === 'grouped'" class="view-actions">
+      <div v-if="viewMode !== 'flat'" class="view-actions">
         <el-button size="small" text @click="expandAll">
           <el-icon><Expand /></el-icon>&nbsp;Expand all
         </el-button>
@@ -619,7 +815,7 @@ watch(originFilter, (selected) => {
     </div>
 
     <el-table
-      v-if="viewMode === 'grouped'"
+      v-if="viewMode !== 'flat'"
       ref="tableRef"
       :data="treeRows"
       v-loading="loading"
@@ -662,6 +858,38 @@ watch(originFilter, (selected) => {
               </router-link>
             </div>
           </template>
+          <template v-else-if="row.kind === 'concept'">
+            <div class="bundle-header bundle-header--concept">
+              <div class="bundle-header__text">
+                <div class="bundle-header__row bundle-header__row--title">
+                  <span class="bundle-header__kind bundle-header__kind--concept">
+                    {{ row.concept_id ? 'Concept' : '—' }}
+                  </span>
+                  <span class="bundle-header__name">{{ row.concept_label }}</span>
+                  <span v-if="row.concept_cui" class="bundle-header__cui mono">
+                    {{ row.concept_cui }}
+                  </span>
+                </div>
+                <div class="bundle-header__row bundle-header__row--meta">
+                  <span class="bundle-header__count">{{ row.cde_count }} CDEs</span>
+                  <span v-if="row.concept_source" class="bundle-header__meta">
+                    · {{ row.concept_source }}
+                  </span>
+                  <span v-if="row.concept_identifier" class="bundle-header__meta mono">
+                    · {{ row.concept_identifier }}
+                  </span>
+                </div>
+              </div>
+              <router-link
+                v-if="row.concept_id"
+                :to="`/concepts/${row.concept_id}`"
+                class="bundle-header__link"
+                @click.stop
+              >
+                Open →
+              </router-link>
+            </div>
+          </template>
           <template v-else>
             <div class="cell-name">
               <span class="cell-name__label">{{ row.cde_name }}</span>
@@ -680,7 +908,7 @@ watch(originFilter, (selected) => {
       <el-table-column label="Definition" min-width="320" show-overflow-tooltip>
         <template #default="{ row }">
           <template v-if="row.kind === 'cde'">{{ row.cde_definition }}</template>
-          <template v-else>
+          <template v-else-if="row.kind === 'bundle'">
             <span class="bundle-header__domain muted">{{ row.bundle_domain }}</span>
           </template>
         </template>
@@ -692,7 +920,7 @@ watch(originFilter, (selected) => {
       </el-table-column>
       <el-table-column label="Classification" width="240">
         <template #default="{ row }">
-          <template v-if="row.kind === 'bundle'">
+          <template v-if="row.kind === 'bundle' || row.kind === 'concept'">
             <div class="cell-class">
               <span
                 v-if="row.tier_summary.Core"
@@ -831,13 +1059,13 @@ watch(originFilter, (selected) => {
       <el-pagination
         v-model:current-page="page"
         v-model:page-size="pageSize"
-        :page-sizes="viewMode === 'grouped' ? [10, 20, 50, 100] : [25, 50, 100, 200]"
+        :page-sizes="viewMode !== 'flat' ? [10, 20, 50, 100] : [25, 50, 100, 200]"
         layout="total, sizes, prev, pager, next, jumper"
         :total="total"
         background
       />
       <div class="pager-note subtle">
-        {{ viewMode === 'grouped' ? 'bundles per page' : 'CDEs per page' }}
+        {{ viewMode === 'grouped' ? 'bundles per page' : viewMode === 'concept' ? 'concepts per page' : 'CDEs per page' }}
       </div>
     </div>
 
@@ -1026,12 +1254,24 @@ watch(originFilter, (selected) => {
     letter-spacing: 0.6px;
     color: $gray_4;
     font-weight: 600;
+
+    &--concept {
+      color: $purple_3;
+    }
   }
 
   &__name {
     font-weight: 600;
     font-size: 13px;
     color: $gray_6;
+  }
+
+  &__cui {
+    font-size: 10px;
+    color: $gray_5;
+    background: $gray_1;
+    padding: 1px 6px;
+    border-radius: 2px;
   }
 
   &__count {

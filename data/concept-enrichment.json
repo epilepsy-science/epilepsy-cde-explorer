@@ -1,0 +1,285 @@
+{
+  "version": 1,
+  "concepts": {
+    "cadsr_1285": {
+      "preferred_label": "Adverse event relatedness scale",
+      "definition": "Scale of the causality between the treatment modality/intervention and the specific adverse event",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=XrsKeH6EJCC",
+      "fetched_at": "2026-04-27T19:28:47.810Z"
+    },
+    "cadsr_2002895": {
+      "preferred_label": "Body system other text",
+      "definition": "The free-text field related to 'Body system category' specifying other text. Category or grouping used in the comprehensive assessment of a participant/subject, which includes a subjective history taking component as well as an objective based structured",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=1FeeZphTeq6",
+      "fetched_at": "2026-04-27T19:28:47.878Z"
+    },
+    "cadsr_2003874": {
+      "preferred_label": "Medical history condition text",
+      "definition": "Verbatim text for the medical condition/disease reported by the participant/subject or documented in the medical record as part of medical history",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=6ZWe8dpMrKb",
+      "fetched_at": "2026-04-27T19:28:47.924Z"
+    },
+    "cadsr_2004170": {
+      "preferred_label": "Physical exam date and time",
+      "definition": "Date (and time if applicable and known) physical exam was performed",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=nOS744JPSOy",
+      "fetched_at": "2026-04-27T19:28:47.972Z"
+    },
+    "cadsr_2004289": {
+      "last_error": "no NLM match",
+      "last_error_at": "2026-04-27T19:28:48.006Z"
+    },
+    "cadsr_2004291": {
+      "preferred_label": "Blood pressure diastolic measurement",
+      "definition": "Measurement of pressure of the participant's/subject's blood against the artery walls during diastole (the relaxation phase) in millimeters of mercury (mmHg)",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=cvtAEVWeVwO",
+      "fetched_at": "2026-04-27T19:28:48.091Z"
+    },
+    "cadsr_2008432": {
+      "preferred_label": "Blood pressure measurement position type",
+      "definition": "Indicator of the participant/subject's position during the blood pressure measurement.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=sfvFJDT0Xf0",
+      "fetched_at": "2026-04-27T19:28:48.140Z"
+    },
+    "cadsr_2179689": {
+      "preferred_label": "Person Weight Value",
+      "definition": "The number that describes the vertical force exerted by the mass of an individual as a result of gravity.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=myNepmgQykx",
+      "fetched_at": "2026-04-27T19:28:48.192Z"
+    },
+    "cadsr_2180147": {
+      "preferred_label": "Hand preference type",
+      "definition": "Hand which the participant/subject uses predominantly, not necessarily the hand he/she writes with exclusively.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=HQ_m4_P2HpA",
+      "fetched_at": "2026-04-27T19:28:48.240Z"
+    },
+    "cadsr_2188132": {
+      "preferred_label": "Adverse event verbatim term text",
+      "definition": "Text that describes the adverse event word for word as described by the participant/subject",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=5rVYUegjjNP",
+      "fetched_at": "2026-04-27T19:28:48.276Z"
+    },
+    "cadsr_2188132_3177812": {
+      "preferred_label": "Adverse event during study indicator",
+      "definition": "Indicator of whether the participant/subject experienced any adverse events during the study",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=gTy21HSTPEx",
+      "fetched_at": "2026-04-27T19:28:48.310Z"
+    },
+    "cadsr_2189843": {
+      "preferred_label": "Serious adverse event end date and time",
+      "definition": "Date (and time, if applicable and known) on which the serious adverse event discontinued/stopped",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=_etc3ZJ5",
+      "fetched_at": "2026-04-27T19:28:48.352Z"
+    },
+    "cadsr_2192199": {
+      "preferred_label": "Race",
+      "definition": "A textual description of a person's race.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=Fakc6Jy2x",
+      "fetched_at": "2026-04-27T19:28:48.405Z"
+    },
+    "cadsr_2192217": {
+      "preferred_label": "Ethnicity",
+      "definition": "The ethnicity of a person.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=PtRlg7yLP_",
+      "fetched_at": "2026-04-27T19:28:48.446Z"
+    },
+    "cadsr_2199908": {
+      "preferred_label": "Serious adverse event indicator",
+      "definition": "The indicator of whether the adverse event is serious.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=nuDHqs9oyx_",
+      "fetched_at": "2026-04-27T19:28:48.509Z"
+    },
+    "cadsr_2200604": {
+      "preferred_label": "Family history gender type",
+      "definition": "<p>NLM disclaimer: Consistent with Executive Order 14168, \"gender\" should not be used as a replacement for the element \"sex\" in the NIH CDE repository.</p><p>Reported gender of the relative. Gender is the socially constructed identity of sex</p>",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=vqxNsvfcdhs",
+      "fetched_at": "2026-04-27T19:28:48.545Z"
+    },
+    "cadsr_2201188": {
+      "preferred_label": "Adverse event severity grade scale",
+      "definition": "The grading scale of the severity or intensity of the adverse event",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=Su71nJ0K1WH",
+      "fetched_at": "2026-04-27T19:28:48.580Z"
+    },
+    "cadsr_2201880": {
+      "preferred_label": "Physical exam description text",
+      "definition": "Free text field to describe the abnormality in a specific body system or an explanation of why the body system was not examined",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=CPXnC4nAA5j",
+      "fetched_at": "2026-04-27T19:28:48.614Z"
+    },
+    "cadsr_2220500": {
+      "preferred_label": "Medication prior or concomitant use indicator",
+      "definition": "Indicator of whether the participant/subject reported taking any medications during the time period relevant to the study protocol",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=NOF7AyF7Y62",
+      "fetched_at": "2026-04-27T19:28:48.651Z"
+    },
+    "cadsr_2321822": {
+      "preferred_label": "Medication prior or concomitant ongoing indicator",
+      "definition": "Indicator of or description that the prior/concomitant medication usage is ongoing.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=r3Z1RrHrghk",
+      "fetched_at": "2026-04-27T19:28:48.697Z"
+    },
+    "cadsr_2538920": {
+      "preferred_label": "Height pediatric unit of measure",
+      "definition": "Unit of measure for the height numerical value for subject/participant < 21 years old",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=QJaFxzV5orC",
+      "fetched_at": "2026-04-27T19:28:48.737Z"
+    },
+    "cadsr_2630200": {
+      "preferred_label": "Investigator assessment concomitant medication specify text",
+      "definition": "The free-text field to specify the concomitant medication that might have caused the serious adverse event.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=s19CG7qcB",
+      "fetched_at": "2026-04-27T19:28:48.799Z"
+    },
+    "cadsr_2644399": {
+      "preferred_label": "Respiratory rate",
+      "definition": "Rate of the participant/subject's breathing (inhalation and exhalation).",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=ARqtQo1xK1A",
+      "fetched_at": "2026-04-27T19:28:48.833Z"
+    },
+    "cadsr_2644401": {
+      "preferred_label": "Temperature measurement",
+      "definition": "Measurement of the participant's/subject's body temperature.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=2V9Th1t2guY",
+      "fetched_at": "2026-04-27T19:28:48.878Z"
+    },
+    "cadsr_2744993": {
+      "preferred_label": "Serious adverse event start date and time",
+      "definition": "Date (and time, if applicable and known) on which the serious adverse event was first evident",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=Lwfq03w7m",
+      "fetched_at": "2026-04-27T19:28:48.913Z"
+    },
+    "cadsr_2746517": {
+      "preferred_label": "Serious adverse event outcome status",
+      "definition": "Final status of the participant/subject related to the serious adverse event",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=rY2hnBnuw",
+      "fetched_at": "2026-04-27T19:28:48.950Z"
+    },
+    "cadsr_2767073": {
+      "preferred_label": "Heart rate",
+      "definition": "The participant/subject's pulse or number of contractions (heart beats) per minute",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=bEEd67Oc0W1",
+      "fetched_at": "2026-04-27T19:28:48.991Z"
+    },
+    "cadsr_2821383": {
+      "preferred_label": "Physical exam body system result type",
+      "definition": "Assessment result of each body system examined",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=C7U6_egHNyF",
+      "fetched_at": "2026-04-27T19:28:49.025Z"
+    },
+    "cadsr_2829808": {
+      "preferred_label": "Vital signs date and time",
+      "definition": "Date (and time, if applicable and known) the vital signs and other body measurements were taken by indicating the month, day, and year for the date and am, pm, or 24 hour clock for time",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=abmAnDXu5my",
+      "fetched_at": "2026-04-27T19:28:49.065Z"
+    },
+    "cadsr_2956267": {
+      "preferred_label": "Temperature unit of measure",
+      "definition": "Unit of measure for the temperature numerical value",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=QHZV_BwjfVW",
+      "fetched_at": "2026-04-27T19:28:49.102Z"
+    },
+    "cadsr_3125302": {
+      "preferred_label": "Adverse event CTCAE low level term name",
+      "definition": "Text that represents the Common Terminology Criteria for Adverse Events (CTCAE) low level term name for an adverse event.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=mZ7q9m2SPpZ",
+      "fetched_at": "2026-04-27T19:28:49.136Z"
+    },
+    "cadsr_3133353": {
+      "preferred_label": "Adverse event MedDRA lower level term code",
+      "definition": "Code that corresponds to the Medical Dictionary for Regulatory Activities (MedDRA) Lower Level Term (LLT) for an adverse event",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=axev8kA5tEg",
+      "fetched_at": "2026-04-27T19:28:49.174Z"
+    },
+    "cadsr_3134878": {
+      "preferred_label": "Education year count",
+      "definition": "Number of years of education completed (age 5 and beyond)",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=7BnoANaBZ6P",
+      "fetched_at": "2026-04-27T19:28:49.223Z"
+    },
+    "cadsr_3141289": {
+      "preferred_label": "Adverse event study intervention action taken type",
+      "definition": "Type of action taken for adverse event in relation to study intervention",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=MmDGF3GO5rJ",
+      "fetched_at": "2026-04-27T19:28:49.266Z"
+    },
+    "cadsr_3151195": {
+      "preferred_label": "Temperature measurement anatomic site",
+      "definition": "Anatomic site on or within the body where the temperature was measured.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=KAwO5BMbzEZ",
+      "fetched_at": "2026-04-27T19:28:49.310Z"
+    },
+    "cadsr_3158920": {
+      "preferred_label": "Medication prior or concomitant indication text",
+      "definition": "Text describing reason for administration of a prior/concomitant (nonstudy) agent or measure. This is not the pharmacologic classification of an agent (antibiotic, analgesic, etc.), but the reason for its administration to the participant/subject.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=obDuyC3ejM_",
+      "fetched_at": "2026-04-27T19:28:49.349Z"
+    },
+    "cadsr_3162728": {
+      "preferred_label": "Imaging medication pre-treatment withheld name",
+      "definition": "Name of the pre-treatment withheld agent or drug",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=xdW5V_vCHwn",
+      "fetched_at": "2026-04-27T19:28:49.388Z"
+    },
+    "cadsr_3162729": {
+      "preferred_label": "Medication adjusted frequency",
+      "definition": "Adjusted frequency of medication taken per administration prior to adjustments",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=7JbFKdF668",
+      "fetched_at": "2026-04-27T19:28:49.445Z"
+    },
+    "cadsr_3162730": {
+      "preferred_label": "Medication plasma concentration last dose unit of measure",
+      "definition": "Dosage unit of measure for the last dose taken before the blood draw for the plasma concentration measurement",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=Gg5DWcUacSE",
+      "fetched_at": "2026-04-27T19:28:49.481Z"
+    },
+    "cadsr_3162733": {
+      "preferred_label": "Medication prior or concomitant dose frequency",
+      "definition": "Frequency of use of a prior/concomitant medication.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=FbQadwMZyhj",
+      "fetched_at": "2026-04-27T19:28:49.524Z"
+    },
+    "cadsr_3162743": {
+      "preferred_label": "Medication prior or concomitant route other text",
+      "definition": "The free-text field related to 'Medication prior or concomitant route type' specifying other text. Type of access route for the administration of the prior/concomitant medication.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=RxvNU2_5yNM",
+      "fetched_at": "2026-04-27T19:28:49.559Z"
+    },
+    "cadsr_3162752": {
+      "preferred_label": "Medication prior or concomitant start date and time",
+      "definition": "The date (and time, if applicable and known) on which the prior/concomitant medication usage began.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=EuRro3Yr8ZA",
+      "fetched_at": "2026-04-27T19:28:49.618Z"
+    },
+    "cadsr_3162753": {
+      "preferred_label": "Medication history date",
+      "definition": "Date the medication history was taken",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=m1zKg8xBCG",
+      "fetched_at": "2026-04-27T19:28:49.657Z"
+    },
+    "cadsr_3181613": {
+      "preferred_label": "Head circumference measurement",
+      "definition": "Circumferential measurement of the head at the widest point - the distance from above the eyebrows and ears and around the back of the head",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=JQvUnxHcH_A",
+      "fetched_at": "2026-04-27T19:28:49.711Z"
+    },
+    "cadsr_3181626": {
+      "preferred_label": "Head circumference unit of measure",
+      "definition": "Unit of measure for the head circumference numerical value",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=yTqqK13skx6",
+      "fetched_at": "2026-04-27T19:28:49.749Z"
+    },
+    "cadsr_649": {
+      "preferred_label": "Height pediatric measurement",
+      "definition": "Measurement of pediatric participant's/subject's height.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=7kNdHQ5jBR",
+      "fetched_at": "2026-04-27T19:28:49.793Z"
+    },
+    "cadsr_793": {
+      "preferred_label": "Person Birth Date",
+      "definition": "The month, day and year on which the person was born.",
+      "source_url": "https://cde.nlm.nih.gov/deView?tinyId=m10MsOXkJg",
+      "fetched_at": "2026-04-27T19:28:49.851Z"
+    }
+  }
+}

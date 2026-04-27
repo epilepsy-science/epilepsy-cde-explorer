@@ -23,14 +23,14 @@ async function load() {
     const stClause = studyTypeClause();
     if (stClause) parts.push(stClause);
     const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
-    // One row per CDE — the tree groups by (domain, subdomain, category) in
-    // JS. If the CDE belongs to a bundle, we show the bundle as an interior
-    // node inside the category; CDEs not in any bundle hang off the category
-    // directly. Clicking a CDE leaf opens the shared detail drawer.
+    // One row per CDE — the tree builds N levels by splitting cde_path on
+    // ` / `. Bundles sit as an interior node under the deepest path
+    // segment; unbundled CDEs hang off the segment directly. Clicking a
+    // CDE leaf opens the shared detail drawer.
     rows.value = await query<CdeRow>(`
       SELECT * FROM cde_full
       ${where}
-      ORDER BY cde_domain, cde_subdomain, cde_category, bundle_name, cde_name
+      ORDER BY cde_path, bundle_name, cde_name
     `);
   } finally {
     loading.value = false;
@@ -52,88 +52,108 @@ interface TreeNode {
   cde?: CdeRow;
 }
 
+const PATH_SEP = ' / ';
+
+// Path-segment tree. Each CDE row carries a ` / `-delimited cde_path
+// (currently 0–3 segments derived from domain/subdomain/category, but the
+// builder is depth-agnostic — sources that emit longer paths just produce
+// more nesting). At the leaf segment of a path, bundles appear as named
+// interior nodes containing their CDEs; unbundled CDEs sit alongside.
 const tree = computed<TreeNode[]>(() => {
-  // domain → subdomain → category → (bundle | direct CDE) → CDE
   type BundleBucket = { bundle_id: string; bundle_name: string; cdes: CdeRow[] };
-  type CategoryBucket = { bundles: Map<string, BundleBucket>; unbundled: CdeRow[] };
-  const byDomain = new Map<string, Map<string, Map<string, CategoryBucket>>>();
+  // Each path → its bundles + its unbundled CDEs.
+  type Bucket = { bundles: Map<string, BundleBucket>; unbundled: CdeRow[] };
+  const byPath = new Map<string, Bucket>();
   for (const r of rows.value) {
-    const d = r.cde_domain || 'Unassigned';
-    const sd = r.cde_subdomain || '—';
-    const c = r.cde_category || '—';
-    if (!byDomain.has(d)) byDomain.set(d, new Map());
-    const dm = byDomain.get(d)!;
-    if (!dm.has(sd)) dm.set(sd, new Map());
-    const sm = dm.get(sd)!;
-    if (!sm.has(c)) sm.set(c, { bundles: new Map(), unbundled: [] });
-    const bucket = sm.get(c)!;
+    const path = r.cde_path?.trim() || 'Unassigned';
+    let bucket = byPath.get(path);
+    if (!bucket) {
+      bucket = { bundles: new Map(), unbundled: [] };
+      byPath.set(path, bucket);
+    }
     if (r.bundle_id && r.bundle_name) {
-      if (!bucket.bundles.has(r.bundle_id)) {
-        bucket.bundles.set(r.bundle_id, {
-          bundle_id: r.bundle_id,
-          bundle_name: r.bundle_name,
-          cdes: [],
-        });
+      let b = bucket.bundles.get(r.bundle_id);
+      if (!b) {
+        b = { bundle_id: r.bundle_id, bundle_name: r.bundle_name, cdes: [] };
+        bucket.bundles.set(r.bundle_id, b);
       }
-      bucket.bundles.get(r.bundle_id)!.cdes.push(r);
+      b.cdes.push(r);
     } else {
       bucket.unbundled.push(r);
     }
   }
-  const cdeLeaf = (r: CdeRow): TreeNode => ({
+
+  // Mutable shape used while building, before we roll up counts.
+  type BuildNode = {
+    id: string;
+    label: string;
+    count: number;
+    children: BuildNode[];
+    bundleId?: string;
+    cde?: CdeRow;
+  };
+
+  const cdeLeaf = (r: CdeRow): BuildNode => ({
     id: `cde-${r.cde_id}`,
     label: r.cde_name,
     count: 1,
+    children: [],
     cde: r,
   });
-  const nodes: TreeNode[] = [];
-  for (const [d, dm] of byDomain) {
-    const dChildren: TreeNode[] = [];
-    let dTotal = 0;
-    for (const [sd, sm] of dm) {
-      const sChildren: TreeNode[] = [];
-      let sTotal = 0;
-      for (const [c, bucket] of sm) {
-        const cChildren: TreeNode[] = [];
-        let cTotal = 0;
-        for (const b of bucket.bundles.values()) {
-          cChildren.push({
-            id: `b-${b.bundle_id}`,
-            label: b.bundle_name,
-            count: b.cdes.length,
-            bundleId: b.bundle_id,
-            children: b.cdes.map(cdeLeaf),
-          });
-          cTotal += b.cdes.length;
-        }
-        for (const r of bucket.unbundled) {
-          cChildren.push(cdeLeaf(r));
-          cTotal += 1;
-        }
-        sTotal += cTotal;
-        sChildren.push({
-          id: `c-${d}-${sd}-${c}`,
-          label: c,
-          count: cTotal,
-          children: cChildren,
-        });
-      }
-      dTotal += sTotal;
-      dChildren.push({
-        id: `sd-${d}-${sd}`,
-        label: sd,
-        count: sTotal,
-        children: sChildren,
+  const root: BuildNode = { id: '__root', label: '', count: 0, children: [] };
+
+  const findOrCreateChild = (parent: BuildNode, label: string, idPrefix: string): BuildNode => {
+    let child = parent.children.find((c) => c.label === label && !c.cde && !c.bundleId);
+    if (!child) {
+      child = {
+        id: `${idPrefix}-${label}`,
+        label,
+        count: 0,
+        children: [],
+      };
+      parent.children.push(child);
+    }
+    return child;
+  };
+
+  for (const [path, bucket] of byPath) {
+    const segments = path.split(PATH_SEP).map((s) => s.trim()).filter(Boolean);
+    let cursor = root;
+    let acc = '';
+    for (const seg of segments) {
+      acc = acc ? `${acc}${PATH_SEP}${seg}` : seg;
+      cursor = findOrCreateChild(cursor, seg, `seg-${acc}`);
+    }
+    // We're at the leaf segment node for this path. Drop bundles + CDEs.
+    for (const b of bucket.bundles.values()) {
+      cursor.children.push({
+        id: `b-${b.bundle_id}`,
+        label: b.bundle_name,
+        count: b.cdes.length,
+        bundleId: b.bundle_id,
+        children: b.cdes.map(cdeLeaf),
       });
     }
-    nodes.push({
-      id: `d-${d}`,
-      label: d,
-      count: dTotal,
-      children: dChildren,
-    });
+    for (const r of bucket.unbundled) {
+      cursor.children.push(cdeLeaf(r));
+    }
   }
-  return nodes.sort((a, b) => b.count - a.count);
+
+  // Roll up counts from leaves to roots.
+  const rollup = (n: BuildNode): number => {
+    if (n.cde) return 1;
+    let total = 0;
+    for (const c of n.children) total += rollup(c);
+    n.count = total;
+    return total;
+  };
+  for (const n of root.children) rollup(n);
+
+  // Top-level sort: biggest segment first. Children stay in insertion order
+  // (alphabetical within a path because rows are SQL-sorted by cde_path).
+  return root.children
+    .slice()
+    .sort((a, b) => b.count - a.count) as TreeNode[];
 });
 
 function handleNodeClick(node: TreeNode) {

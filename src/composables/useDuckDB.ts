@@ -428,6 +428,20 @@ async function init(): Promise<DuckDBHandle> {
         ${domainExpr}    AS cde_domain,
         ${subdomainExpr} AS cde_subdomain,
         ${categoryExpr}  AS cde_category,
+        -- Canonical hierarchical path. Sources with shallower taxonomies
+        -- (NINDS = domain + subdomain only) emit shorter paths; sources with
+        -- deeper hierarchies fill in more segments here when they're added.
+        -- The tree view in ExploreTreeTab splits on ' / ' to render N levels.
+        NULLIF(
+          array_to_string(
+            list_filter(
+              [${domainExpr}, ${subdomainExpr}, ${categoryExpr}],
+              x -> x IS NOT NULL AND TRIM(x) != ''
+            ),
+            ' / '
+          ),
+          ''
+        )                AS cde_path,
         CAST(b.id AS VARCHAR)         AS bundle_id,
         b.bundle_name,
         b.domain                      AS bundle_domain,

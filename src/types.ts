@@ -58,6 +58,10 @@ export interface CdeRow {
   cde_domain: string | null;
   cde_subdomain: string | null;
   cde_category: string | null;
+  /** Canonical hierarchical path, ` / `-delimited. e.g. "Demographics / Age".
+   *  Derived from domain/subdomain/category today; sources with deeper
+   *  taxonomies will eventually emit longer paths here. */
+  cde_path: string | null;
 
   source_labels: string | null;
   source_count: number | null;
@@ -84,14 +88,22 @@ export interface BundleRow {
 
 // ── Concept layer ──────────────────────────────────────────────────────────
 // Each Concept is the underlying semantic anchor for one or more CDEs.
-// `source` + `identifier` is the natural key (e.g., LOINC + "30525-0",
-// caDSR + "1285", SNOMED CT + "271649006"). The enrichment columns are
-// populated by the Phase 4 terminology-service cache; until then they're
-// null and the UI falls back to "<source>:<identifier>" as the label.
+// `(source, identifier)` is the natural key as it lands from the source —
+// e.g., (LOINC, "30525-0"), (caDSR, "1285"), (SNOMED CT, "271649006").
+//
+// `cui` is the UMLS Concept Unique Identifier and is the canonical bridge
+// across vocabularies — when populated, multiple (source, identifier)
+// mappings that share a CUI represent the same semantic concept. Filled
+// by the Phase 4 UTS cache; until then it's null and the UI groups by
+// (source, identifier) directly.
+//
+// `preferred_label`, `definition`, and `alt_labels` are also Phase 4 — the
+// UI falls back to `<source>:<identifier>` when label is null.
 export interface ConceptRow {
   id: string;
   source: string;
   identifier: string;
+  cui: string | null;
   preferred_label: string | null;
   definition: string | null;
   /** Pipe-separated alternative labels from the terminology service. */

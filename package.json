@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "prepare-data": "node scripts/prepare-data.mjs",
+    "enrich-concepts": "node scripts/enrich-concepts.mjs",
     "sync-api-types": "openapi-typescript api/openapi.yaml -o src/api/generated/schema.ts",
     "check-api-types": "openapi-typescript api/openapi.yaml -o /tmp/schema.check.ts && diff /tmp/schema.check.ts src/api/generated/schema.ts",
     "dev": "vite",

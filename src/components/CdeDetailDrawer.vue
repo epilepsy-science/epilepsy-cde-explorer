@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import type { CdeRow } from '@/types';
 import { splitPipe, splitSemi } from '@/types';
 import ClassificationPill from './ClassificationPill.vue';
 import DiseaseScopeCell from './DiseaseScopeCell.vue';
 import AddToCrfButton from './AddToCrfButton.vue';
 import CdeOriginDiff from './CdeOriginDiff.vue';
+import { useConcepts, conceptLabel, type ConceptForCde } from '@/composables/useConcepts';
 
 const props = defineProps<{
   modelValue: boolean;
@@ -42,6 +43,27 @@ const sourceList = computed(() => splitSemi(props.cde?.cde_source));
 // bundled, we redirect the Add-to-CRF action to add the parent bundle, and
 // surface the change in the button label so the user understands why.
 const isBundled = computed(() => Boolean(props.cde?.bundle_name));
+
+// Concept layer — surface the semantic anchors this CDE points at, if any.
+// Phase 1 just renders source + identifier; Phase 4 (UTS cache) will fill
+// preferred_label so the chips can show real concept names.
+const { getConceptsForCde } = useConcepts();
+const concepts = ref<ConceptForCde[]>([]);
+watch(
+  () => props.cde?.cde_id,
+  async (id) => {
+    if (!id) {
+      concepts.value = [];
+      return;
+    }
+    try {
+      concepts.value = await getConceptsForCde(id);
+    } catch {
+      concepts.value = [];
+    }
+  },
+  { immediate: true },
+);
 const addKind = computed<'cde' | 'bundle'>(() => (isBundled.value ? 'bundle' : 'cde'));
 const addRef = computed<string | null>(() =>
   isBundled.value ? (props.cde?.bundle_name ?? null) : (props.cde?.cde_name ?? null),
@@ -97,6 +119,29 @@ const addLabel = computed<string>(() =>
         </div>
       </header>
 
+      <!-- Concept(s) this CDE represents. Each chip routes to the concept
+           detail page; until UMLS enrichment lands the label is just
+           "<source>:<identifier>". When the CDE has no concept mapping
+           (NINDS / demo records, or NLM rows without dec_identifier) we
+           hide the section entirely. -->
+      <section v-if="concepts.length">
+        <h3>Concept{{ concepts.length === 1 ? '' : 's' }}</h3>
+        <div class="concept-chips">
+          <router-link
+            v-for="c in concepts"
+            :key="c.id"
+            :to="`/concepts/${c.id}`"
+            class="concept-chip"
+          >
+            <span class="concept-chip__source">{{ c.source }}</span>
+            <span class="concept-chip__label">{{ conceptLabel(c) }}</span>
+            <span v-if="c.role !== 'primary'" class="concept-chip__role">
+              · {{ c.role }}
+            </span>
+          </router-link>
+        </div>
+      </section>
+
       <section>
         <h3>Definition</h3>
         <p>{{ cde.cde_definition }}</p>
@@ -129,11 +174,16 @@ const addLabel = computed<string>(() =>
         <div>
           <h3>Classification</h3>
           <div class="classification-grid">
-            <div><span class="muted">Agnostic</span><ClassificationPill :value="cde.classification_agnostic" show-placeholder /></div>
-            <div><span class="muted">Neurotrauma</span><ClassificationPill :value="cde.classification_neurotrauma" /></div>
-            <div><span class="muted">TBI</span><ClassificationPill :value="cde.classification_tbi" /></div>
-            <div><span class="muted">PTE</span><ClassificationPill :value="cde.classification_pte" /></div>
-            <div><span class="muted">SCI</span><ClassificationPill :value="cde.classification_sci" /></div>
+            <span class="muted">Agnostic</span>
+            <ClassificationPill :value="cde.classification_agnostic" show-placeholder />
+            <span class="muted">Neurotrauma</span>
+            <ClassificationPill :value="cde.classification_neurotrauma" show-placeholder />
+            <span class="muted">TBI</span>
+            <ClassificationPill :value="cde.classification_tbi" show-placeholder />
+            <span class="muted">PTE</span>
+            <ClassificationPill :value="cde.classification_pte" show-placeholder />
+            <span class="muted">SCI</span>
+            <ClassificationPill :value="cde.classification_sci" show-placeholder />
           </div>
         </div>
       </section>
@@ -325,6 +375,51 @@ const addLabel = computed<string>(() =>
   li {
     margin-bottom: 2px;
     word-break: break-all;
+  }
+}
+
+.concept-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.concept-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid $lineColor2;
+  border-left: 3px solid $purple_3;
+  border-radius: 2px;
+  background: $white;
+  font-size: 12px;
+  text-decoration: none;
+  color: $gray_6;
+  transition: background 80ms ease, transform 80ms ease;
+
+  &:hover {
+    background: $gray_1;
+    transform: translateY(-1px);
+  }
+
+  &__source {
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: $purple_3;
+    font-size: 10px;
+  }
+
+  &__label {
+    color: $gray_6;
+  }
+
+  &__role {
+    color: $gray_4;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
   }
 }
 </style>

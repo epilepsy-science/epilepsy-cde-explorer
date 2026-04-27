@@ -9,6 +9,8 @@ const router = useRouter();
 const { status, query } = useDuckDB();
 const { crfs, ensureLoaded: ensureCrfsLoaded } = useCrfStore();
 
+const conceptDialogOpen = ref(false);
+
 interface Stats {
   total: number;
   bundles: number;
@@ -244,7 +246,94 @@ function pctOfTotal(n: number) {
           </p>
         </li>
       </ol>
+      <div class="how__more">
+        <a href="#" @click.prevent="conceptDialogOpen = true">
+          More about CDEs, bundles, concepts &amp; classifications →
+        </a>
+      </div>
     </section>
+
+    <el-dialog
+      v-model="conceptDialogOpen"
+      title="The data model, in detail"
+      width="640px"
+      align-center
+    >
+      <div class="model-dialog">
+        <p class="model-dialog__lede subtle">
+          The four ideas that show up everywhere in this dashboard.
+        </p>
+
+        <section class="model-dialog__section">
+          <h4>Common Data Element (CDE)</h4>
+          <p>
+            A standardized question with a fixed data type, permissible
+            values, and code system — for example
+            <em>"Glasgow Coma Scale eye-opening response,"</em>
+            with permissible values <em>Spontaneous (4)</em>,
+            <em>To verbal command (3)</em>, <em>To pain (2)</em>, and
+            <em>None (1)</em>. CDEs are the atomic unit: each one captures a
+            single variable so data collected at different sites can be
+            combined and compared.
+          </p>
+        </section>
+
+        <section class="model-dialog__section">
+          <h4>Concept</h4>
+          <p>
+            The underlying meaning a CDE implements — e.g. <em>Body weight</em>
+            or <em>Systolic blood pressure</em>. A concept is independent of
+            how it's encoded: two CDEs from different studies that both
+            represent <em>Body weight</em> point at the same concept, even if
+            one stores kilograms and the other stores pounds. Concepts are the
+            anchor for interoperability — the level at which AI/analytics
+            should reason about meaning.
+          </p>
+          <p class="muted">
+            Linked to NLM, UMLS, LOINC, SNOMED CT, or NCI Thesaurus when a
+            mapping exists. CDEs without a concept assigned will be curated
+            over time.
+          </p>
+        </section>
+
+        <section class="model-dialog__section">
+          <h4>Bundle</h4>
+          <p>
+            A small set of CDEs that must always be captured together because
+            none is meaningful alone — e.g. <em>Age value</em> + <em>Age unit</em>
+            (a bare "5" is ambiguous between days, months, and years). The
+            dashboard treats bundles as a single review/pick unit so they
+            never get separated.
+          </p>
+        </section>
+
+        <section class="model-dialog__section">
+          <h4>Classification</h4>
+          <p>
+            How essential a CDE is for a specific disease or research focus —
+            <strong>Core</strong> (required for any study in this area),
+            <strong>Recommended</strong> (strongly encouraged), or
+            <strong>Supplemental</strong> (useful in some contexts). The same
+            CDE can be Core for one disease and Supplemental for another;
+            classification is per-disease, not per-CDE.
+          </p>
+        </section>
+
+        <section class="model-dialog__section">
+          <h4>Putting it together</h4>
+          <p>
+            A <strong>CRF</strong> assembles CDEs (and bundles) into a form
+            for a specific study event. Each CDE on a CRF carries its
+            classification (so reviewers can see what's <em>Core</em> at a
+            glance) and, where mapped, its concept (so the same idea lines
+            up across studies that picked different CDEs).
+          </p>
+        </section>
+      </div>
+      <template #footer>
+        <el-button type="primary" @click="conceptDialogOpen = false">Got it</el-button>
+      </template>
+    </el-dialog>
 
     <!-- At-a-glance stats (project status) -->
     <section class="stats-band">
@@ -495,6 +584,54 @@ function pctOfTotal(n: number) {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
     gap: 1rem;
+  }
+
+  &__more {
+    margin-top: 1rem;
+    text-align: right;
+    font-size: 13px;
+
+    a {
+      color: $gray_5;
+      text-decoration: none;
+      border-bottom: 1px dashed transparent;
+      padding-bottom: 1px;
+
+      &:hover {
+        color: $es-primary-color;
+        border-bottom-color: $es-primary-color;
+      }
+    }
+  }
+}
+
+.model-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  font-size: 13px;
+  line-height: 1.55;
+
+  &__lede {
+    margin: 0;
+    font-size: 12px;
+  }
+
+  &__section {
+    h4 {
+      margin: 0 0 4px;
+      font-size: 14px;
+      color: $gray_6;
+    }
+    p {
+      margin: 0 0 6px;
+      color: $gray_6;
+
+      &.muted {
+        font-size: 12px;
+        color: $gray_5;
+      }
+    }
   }
 }
 

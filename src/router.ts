@@ -23,6 +23,17 @@ const routes: RouteRecordRaw[] = [
     props: true,
   },
   {
+    path: '/concepts',
+    name: 'concepts',
+    component: () => import('./views/ConceptsView.vue'),
+  },
+  {
+    path: '/concepts/:id',
+    name: 'concept-detail',
+    component: () => import('./views/ConceptDetailView.vue'),
+    props: true,
+  },
+  {
     path: '/crfs',
     name: 'crfs',
     component: () => import('./views/CrfsView.vue'),

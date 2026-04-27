@@ -248,6 +248,11 @@ function buildCdeRecords(cdes) {
     const decConcepts = c.dataElementConcept?.concepts ?? [];
     const dec_identifier = pipe(decConcepts.map((d) => d.originId || d.name));
     const dec_terminology_source = pipe(decConcepts.map((d) => d.origin));
+    // The concept's human-readable preferred name (e.g. "Address", "Age").
+    // NLM ships this on every concept entry, but we used to drop it. Capture
+    // it now so prepare-data.mjs can populate concept.preferred_label without
+    // a separate terminology-service round-trip.
+    const dec_name = pipe(decConcepts.map((d) => d.name || ''));
 
     const pvs = c.valueDomain?.permissibleValues ?? [];
     const pv_labels = pipe(pvs.map((p) => p.valueMeaningName || p.permissibleValue));
@@ -286,6 +291,7 @@ function buildCdeRecords(cdes) {
         nlm_identifier: orgCode ?? tinyId,
         dec_identifier,
         dec_terminology_source,
+        dec_name,
         other_identifiers: otherIds.length ? otherIds.join('|') : null,
       },
     });

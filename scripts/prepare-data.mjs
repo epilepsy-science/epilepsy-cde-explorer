@@ -249,13 +249,14 @@ async function emitConceptRegistry() {
   // a single TRY-shaped query to avoid blowing up on sources without the
   // column (NINDS-only loadouts, demo runs).
   let hasDec = false;
+  let hasDecName = false;
   try {
     const cols = await all(
       `SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet('${cdeGlob}', union_by_name=true) LIMIT 0)`,
     );
-    hasDec =
-      cols.some((c) => c.column_name === 'dec_identifier') &&
-      cols.some((c) => c.column_name === 'dec_terminology_source');
+    const set = new Set(cols.map((c) => c.column_name));
+    hasDec = set.has('dec_identifier') && set.has('dec_terminology_source');
+    hasDecName = set.has('dec_name');
   } catch {
     hasDec = false;
   }
@@ -264,11 +265,18 @@ async function emitConceptRegistry() {
     return null;
   }
 
-  // Pair pipe-joined identifier + source columns positionally so we don't
-  // cross-product. range(1, len+1) materializes the indices; we pluck both
-  // arrays at the same position so the alignment matches what fetch-nlm-cde
-  // emitted. Concept stable ID is a slug of source+identifier so the same
-  // concept across sources produces the same registry row.
+  // dec_name was added to fetch-nlm-cde.mjs after the initial extraction
+  // shipped — older parquets don't have it. SQL coalesces against an empty
+  // string when missing so the splitting/pairing logic is the same shape.
+  const decNameSelect = hasDecName
+    ? `string_split(COALESCE(dec_name, ''), '|') AS names`
+    : `CAST(NULL AS VARCHAR[]) AS names`;
+
+  // Pair pipe-joined identifier + source + name columns positionally so we
+  // don't cross-product. range(1, len+1) materializes the indices; we pluck
+  // each array at the same position so the alignment matches what
+  // fetch-nlm-cde emitted. Concept stable ID is a slug of source+identifier
+  // so the same concept across sources produces the same registry row.
   await run(`
     CREATE OR REPLACE VIEW _cde_concept_pairs AS
     WITH split AS (
@@ -276,7 +284,8 @@ async function emitConceptRegistry() {
         id AS cde_id,
         _source_key,
         string_split(dec_identifier, '|') AS ids,
-        string_split(dec_terminology_source, '|') AS srcs
+        string_split(dec_terminology_source, '|') AS srcs,
+        ${decNameSelect}
       FROM read_parquet('${cdeGlob}', union_by_name=true)
       WHERE dec_identifier IS NOT NULL AND TRIM(dec_identifier) != ''
     ),
@@ -285,7 +294,8 @@ async function emitConceptRegistry() {
         cde_id,
         _source_key,
         TRIM(ids[i]) AS identifier,
-        TRIM(srcs[i]) AS source
+        TRIM(srcs[i]) AS source,
+        TRIM(COALESCE(names[i], '')) AS name
       FROM split, range(1, COALESCE(len(ids), 0) + 1) AS r(i)
     )
     SELECT
@@ -293,22 +303,87 @@ async function emitConceptRegistry() {
       _source_key,
       identifier,
       source,
+      NULLIF(name, '') AS preferred_label,
       LOWER(REGEXP_REPLACE(source || '_' || identifier, '[^a-zA-Z0-9]+', '_', 'g')) AS concept_id
     FROM paired
     WHERE identifier IS NOT NULL AND identifier != ''
       AND source IS NOT NULL AND source != ''
   `);
 
-  await run(`
-    COPY (
-      SELECT DISTINCT
-        concept_id AS id,
-        source,
-        identifier,
+  // `cui` is the UMLS Concept Unique Identifier (e.g. "C0001779" for Age).
+  // UMLS's Metathesaurus is the canonical backbone for concept identity in
+  // NLM-land — it lets a single CUI collapse multiple (source, identifier)
+  // mappings (LOINC, SNOMED CT, caDSR, …) to one semantic entity. We seed
+  // it as NULL here; the Phase 4 UTS-cache fills it via the UMLS API and
+  // lets downstream features group by CUI when present.
+  // Layered concept registry:
+  //   1. _base — derived from CDE rows (concept_id, source, identifier,
+  //      and the in-record dec_name when fetch-nlm-cde captured it).
+  //   2. enrichment.json (data/concept-enrichment.json, written by
+  //      scripts/enrich-concepts.mjs) — overrides preferred_label/definition/
+  //      cui/alt_labels with values pulled from external services. We LEFT
+  //      JOIN so concepts without enrichment fall back to the in-record
+  //      label (or null when neither exists).
+  const enrichmentPath = resolve(ROOT, 'data/concept-enrichment.json');
+  const hasEnrichment = existsSync(enrichmentPath);
+  if (hasEnrichment) {
+    // DuckDB can read JSON via read_json_auto, but the cache shape is a
+    // nested map keyed by concept_id. Flatten it to a JSONL file in TMP
+    // so DuckDB can ingest as a table.
+    const cache = JSON.parse(readFileSync(enrichmentPath, 'utf8'));
+    const rows = Object.entries(cache.concepts ?? {}).map(([id, v]) => ({
+      id,
+      preferred_label: v.preferred_label ?? null,
+      definition: v.definition ?? null,
+      cui: v.cui ?? null,
+      alt_labels: v.alt_labels ?? null,
+    }));
+    const enrichmentJsonl = resolve(TMP, 'concept-enrichment.jsonl');
+    writeFileSync(enrichmentJsonl, rows.map((r) => JSON.stringify(r)).join('\n'));
+    await run(`
+      CREATE OR REPLACE VIEW _concept_enrichment AS
+      SELECT * FROM read_json_auto('${enrichmentJsonl}', format='newline_delimited')
+    `);
+    console.log(`  (loaded enrichment for ${rows.length} concepts)`);
+  } else {
+    await run(`
+      CREATE OR REPLACE VIEW _concept_enrichment AS
+      SELECT
+        CAST(NULL AS VARCHAR) AS id,
         CAST(NULL AS VARCHAR) AS preferred_label,
         CAST(NULL AS VARCHAR) AS definition,
+        CAST(NULL AS VARCHAR) AS cui,
         CAST(NULL AS VARCHAR) AS alt_labels
-      FROM _cde_concept_pairs
+      WHERE false
+    `);
+  }
+
+  // Multiple CDEs may carry the same concept identifier with slightly
+  // different `preferred_label` values (caDSR sometimes serves variants
+  // through different DataElement entries). max(preferred_label) per
+  // concept_id is a deterministic pick — alphabetically last non-null.
+  // The enrichment cache wins over the in-record label whenever both exist.
+  await run(`
+    COPY (
+      WITH base AS (
+        SELECT
+          concept_id AS id,
+          any_value(source) AS source,
+          any_value(identifier) AS identifier,
+          max(preferred_label) AS in_record_label
+        FROM _cde_concept_pairs
+        GROUP BY concept_id
+      )
+      SELECT
+        b.id,
+        b.source,
+        b.identifier,
+        e.cui                                           AS cui,
+        COALESCE(e.preferred_label, b.in_record_label)  AS preferred_label,
+        e.definition                                    AS definition,
+        e.alt_labels                                    AS alt_labels
+      FROM base b
+      LEFT JOIN _concept_enrichment e ON e.id = b.id
     ) TO '${conceptParquet}' (FORMAT 'parquet', COMPRESSION 'zstd');
   `);
   await run(`

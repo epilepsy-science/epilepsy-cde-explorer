@@ -263,10 +263,12 @@ const option_ = computed(() => {
         name: 'All domains',
         roam: false,
         nodeClick: 'zoomToNode',
-        // Depth-2 cap: the initial view shows domain → (bundle or standalone
-        // CDE). Drilling into a bundle reveals its CDE leaves; standalone
-        // CDEs don't drill (no children) — click opens the drawer instead.
-        leafDepth: 2,
+        // ECharts' `leafDepth` is the depth visible *from the current view*,
+        // not from the absolute root. With leafDepth: 2 after zooming into a
+        // domain you'd see both bundles AND their CDEs at once — which read
+        // as "drilled two levels in one click". leafDepth: 1 reveals exactly
+        // one level per click: domain → bundle (or standalone CDE) → CDE leaf.
+        leafDepth: 1,
         breadcrumb: {
           show: true,
           top: 0,

@@ -15,6 +15,8 @@ const activeNav = computed(() => {
   if (route.name === 'bundle-detail') return 'cdes';
   if (route.name === 'crfs' || route.name === 'crf-detail') return 'crfs';
   if (route.name === 'review') return 'review';
+  // Concept routes are reached from CDE drawers — keep the CDEs tab lit so
+  // the user knows where they came from.
   return 'cdes';
 });
 </script>
