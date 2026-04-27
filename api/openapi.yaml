@@ -53,7 +53,12 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '500': { $ref: '#/components/responses/ServerError' }
-      x-amazon-apigateway-integration: &lambdaProxy
+      # NOTE: AWS API Gateway's OpenAPI importer does NOT expand YAML
+      # anchors/aliases (`&foo` / `*foo`) for vendor extensions — only the
+      # operation where an anchor is defined gets an integration; aliased
+      # operations end up with no Target and 404. So we inline this block
+      # on every operation. If you add a new path, copy it verbatim.
+      x-amazon-apigateway-integration:
         type: aws_proxy
         httpMethod: POST
         payloadFormatVersion: '2.0'
@@ -85,7 +90,12 @@ paths:
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
   /v1/me:
     get:
@@ -103,7 +113,12 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
     put:
       summary: Upsert the current reviewer's profile
@@ -121,7 +136,12 @@ paths:
               schema: { $ref: '#/components/schemas/Profile' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
     delete:
       summary: GDPR right-to-erasure — delete profile + reviews + history
@@ -137,7 +157,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/DeleteMeResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
   /v1/reviews:
     post:
@@ -161,7 +186,12 @@ paths:
               schema: { $ref: '#/components/schemas/Review' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
   /v1/reviews/me:
     get:
@@ -184,7 +214,12 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ListReviewsResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
   /v1/admin/export:
     get:
@@ -204,7 +239,12 @@ paths:
               schema: { $ref: '#/components/schemas/AdminExportResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
-      x-amazon-apigateway-integration: *lambdaProxy
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
 
 # ── Components ──────────────────────────────────────────────────────────────
 
