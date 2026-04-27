@@ -32,6 +32,10 @@ const submitting = ref(false);
 const comment = ref('');
 const flags = ref<Set<ReviewFlag>>(new Set());
 const previousClassification = ref<ReviewClassification | null>(null);
+// Currently-selected tier — picked by clicking a tier button or via 1–4
+// keyboard. Submission only happens when the reviewer hits "Submit & next"
+// (or Enter), so they can edit comment/flags after picking.
+const selected = ref<ReviewClassification | null>(null);
 const resolvedLoading = ref(false);
 
 function toggleFlag(key: ReviewFlag) {
@@ -138,11 +142,13 @@ async function resolveCurrent() {
     }
     // Pre-fill from an existing review if the reviewer is amending — so the
     // re-review flow restores their earlier comment, flags, and shows what
-    // they'd previously picked.
+    // they'd previously picked. Pre-selecting the prior tier means a reviewer
+    // who only wants to amend the comment doesn't have to re-pick.
     const existing = findReview(t.type, t.ref, props.disease);
     comment.value = existing?.comment ?? '';
     flags.value = new Set(existing?.flags ?? []);
     previousClassification.value = existing?.classification ?? null;
+    selected.value = existing?.classification ?? null;
   } finally {
     resolvedLoading.value = false;
   }
@@ -180,9 +186,14 @@ function pvsForCde(c: ResolvedCdeDetail) {
 }
 
 // ── Actions ─────────────────────────────────────────────────────────────────
-async function classify(tier: ReviewClassification) {
+function selectTier(tier: ReviewClassification) {
+  selected.value = tier;
+}
+
+async function submit() {
   const t = current.value;
-  if (!t || submitting.value) return;
+  const tier = selected.value;
+  if (!t || !tier || submitting.value) return;
   submitting.value = true;
   try {
     await submitReview({
@@ -209,6 +220,7 @@ function advance() {
   comment.value = '';
   flags.value = new Set();
   previousClassification.value = null;
+  selected.value = null;
   if (idx.value + 1 >= props.targets.length) {
     emit('finish', summary.value);
     return;
@@ -226,16 +238,23 @@ function previous() {
 }
 
 // ── Keyboard shortcuts ──────────────────────────────────────────────────────
+// 1–4 select a tier (no submit); Enter submits the current selection.
+// Cmd/Ctrl+Enter inside the comment textarea also submits.
 function onKeydown(e: KeyboardEvent) {
-  // Ignore when the comment box has focus.
   const target = e.target as HTMLElement | null;
-  if (target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT')) {
+  const inField = target && (target.tagName === 'TEXTAREA' || target.tagName === 'INPUT');
+  // Allow Cmd/Ctrl+Enter as "submit" even from inside the comment box.
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    void submit();
     return;
   }
-  if (e.key === '1') classify('Core');
-  else if (e.key === '2') classify('Recommended');
-  else if (e.key === '3') classify('Supplemental');
-  else if (e.key === '4') classify('Not Applicable');
+  if (inField) return;
+  if (e.key === '1') selectTier('Core');
+  else if (e.key === '2') selectTier('Recommended');
+  else if (e.key === '3') selectTier('Supplemental');
+  else if (e.key === '4') selectTier('Not Applicable');
+  else if (e.key === 'Enter') void submit();
   else if (e.key.toLowerCase() === 's') skip();
   else if (e.key === 'ArrowLeft') previous();
 }
@@ -379,19 +398,35 @@ const progressPct = computed(
         <span class="rank-prompt__disease">{{ diseaseLabel }}</span>
       </div>
       <div class="tier-buttons">
-        <button class="tier-btn tier-btn--core" @click="classify('Core')">
+        <button
+          class="tier-btn tier-btn--core"
+          :class="{ 'tier-btn--selected': selected === 'Core' }"
+          @click="selectTier('Core')"
+        >
           <span class="tier-btn__key">1</span>
           <span class="tier-btn__label">Core</span>
         </button>
-        <button class="tier-btn tier-btn--recommended" @click="classify('Recommended')">
+        <button
+          class="tier-btn tier-btn--recommended"
+          :class="{ 'tier-btn--selected': selected === 'Recommended' }"
+          @click="selectTier('Recommended')"
+        >
           <span class="tier-btn__key">2</span>
           <span class="tier-btn__label">Recommended</span>
         </button>
-        <button class="tier-btn tier-btn--supplemental" @click="classify('Supplemental')">
+        <button
+          class="tier-btn tier-btn--supplemental"
+          :class="{ 'tier-btn--selected': selected === 'Supplemental' }"
+          @click="selectTier('Supplemental')"
+        >
           <span class="tier-btn__key">3</span>
           <span class="tier-btn__label">Supplemental</span>
         </button>
-        <button class="tier-btn tier-btn--na" @click="classify('Not Applicable')">
+        <button
+          class="tier-btn tier-btn--na"
+          :class="{ 'tier-btn--selected': selected === 'Not Applicable' }"
+          @click="selectTier('Not Applicable')"
+        >
           <span class="tier-btn__key">4</span>
           <span class="tier-btn__label">Not Applicable</span>
         </button>
@@ -429,7 +464,15 @@ const progressPct = computed(
       <footer class="decision-panel__footer">
         <el-button text @click="previous" :disabled="idx === 0">← Previous</el-button>
         <el-button @click="skip">Skip <span class="kbd">S</span></el-button>
-        <div class="decision-panel__hint muted">← previous · S skip</div>
+        <el-button
+          type="primary"
+          :disabled="!selected || submitting"
+          :loading="submitting"
+          @click="submit"
+        >
+          Submit &amp; next <span class="kbd">⏎</span>
+        </el-button>
+        <div class="decision-panel__hint muted">1–4 pick · ⏎ submit · S skip · ← previous</div>
       </footer>
     </aside>
   </div>
@@ -839,18 +882,43 @@ const progressPct = computed(
   &--core {
     border-left-color: #2d6b3a;
     &:hover { background: #e8f3ec; }
+    &.tier-btn--selected {
+      background: #e8f3ec;
+      border-color: #2d6b3a;
+      box-shadow: inset 0 0 0 1px #2d6b3a;
+    }
   }
   &--recommended {
     border-left-color: #1f528f;
     &:hover { background: #eaf1fa; }
+    &.tier-btn--selected {
+      background: #eaf1fa;
+      border-color: #1f528f;
+      box-shadow: inset 0 0 0 1px #1f528f;
+    }
   }
   &--supplemental {
     border-left-color: #7a4a05;
     &:hover { background: #fdf3df; }
+    &.tier-btn--selected {
+      background: #fdf3df;
+      border-color: #7a4a05;
+      box-shadow: inset 0 0 0 1px #7a4a05;
+    }
   }
   &--na {
     border-left-color: $gray_4;
     &:hover { background: $gray_1; }
+    &.tier-btn--selected {
+      background: $gray_1;
+      border-color: $gray_5;
+      box-shadow: inset 0 0 0 1px $gray_5;
+    }
+  }
+
+  // Selected state — common: lift the key chip slightly so it reads as "active"
+  &--selected &__key {
+    background: $white;
   }
 }
 
