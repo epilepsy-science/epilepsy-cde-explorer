@@ -11,15 +11,6 @@ const { status, query } = useDuckDB();
 const { lens, option, clause, classificationColumn } = useDiseaseLens();
 const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
 
-interface Stats {
-  total: number;
-  bundles: number;
-  core: number;
-  recommended: number;
-  supplemental: number;
-}
-
-const stats = ref<Stats>({ total: 0, bundles: 0, core: 0, recommended: 0, supplemental: 0 });
 const heatmap = ref<HeatCell[]>([]);
 // Donut data — three slices through the same filtered CDE set.
 interface SliceRow {
@@ -132,10 +123,7 @@ async function load() {
     const tierExpr = tierExpression(tierCol);
 
     const groupExpr = groupBySqlExpr.value;
-    const [totals, tiers, heat, domainBreakdown, sourceBreakdown] = await Promise.all([
-      query<{ n: number; b: number }>(
-        `SELECT count(*) AS n, count(DISTINCT bundle_id) AS b FROM cde_full ${where}`,
-      ),
+    const [tiers, heat, domainBreakdown, sourceBreakdown] = await Promise.all([
       query<{ tier: string; n: number }>(
         `SELECT ${tierExpr} AS tier, count(*) AS n FROM cde_full ${where} GROUP BY ${tierExpr}`,
       ),
@@ -164,16 +152,6 @@ async function load() {
       `),
     ]);
 
-    const tierMap: Record<string, number> = {};
-    for (const t of tiers) tierMap[t.tier ?? ''] = Number(t.n);
-
-    stats.value = {
-      total: Number(totals[0]?.n ?? 0),
-      bundles: Number(totals[0]?.b ?? 0),
-      core: tierMap['Core'] ?? 0,
-      recommended: tierMap['Recommended'] ?? 0,
-      supplemental: tierMap['Supplemental'] ?? 0,
-    };
     heatmap.value = heat.map((c) => ({ ...c, cde_count: Number(c.cde_count) }));
 
     // Tier donut: stable order, fold null/empty under "Unclassified" so the
@@ -255,51 +233,14 @@ function goToCdes(params: Record<string, string | undefined>) {
   router.push({ path: '/cdes', query: q });
 }
 
-function pctOfTotal(n: number) {
-  return stats.value.total ? Math.round((n / stats.value.total) * 100) : 0;
-}
 </script>
 
 <template>
   <div class="overview" v-loading="loading">
-    <!-- Hero stats -->
-    <section class="stat-grid">
-      <div class="stat-card stat-card--lead">
-        <div class="stat-card__value">{{ stats.total.toLocaleString() }}</div>
-        <div class="stat-card__label">
-          CDEs for {{ option(lens).label }}
-          <span v-if="studyTypeFilter !== 'all'">{{ studyTypeFilter }}</span>
-        </div>
-        <div class="stat-card__meta muted">across {{ stats.bundles }} bundles</div>
-      </div>
-      <div
-        class="stat-card stat-card--tier tier-core"
-        @click="goToCdes({ disease: lens, tier: 'Core' })"
-      >
-        <div class="stat-card__value">{{ stats.core.toLocaleString() }}</div>
-        <div class="stat-card__label">Core <span class="muted">({{ pctOfTotal(stats.core) }}%)</span></div>
-        <div class="stat-card__meta">Must-have for this study type</div>
-      </div>
-      <div
-        class="stat-card stat-card--tier tier-recommended"
-        @click="goToCdes({ disease: lens, tier: 'Recommended' })"
-      >
-        <div class="stat-card__value">{{ stats.recommended.toLocaleString() }}</div>
-        <div class="stat-card__label">Recommended <span class="muted">({{ pctOfTotal(stats.recommended) }}%)</span></div>
-        <div class="stat-card__meta">Strongly encouraged</div>
-      </div>
-      <div
-        class="stat-card stat-card--tier tier-supplemental"
-        @click="goToCdes({ disease: lens, tier: 'Supplemental' })"
-      >
-        <div class="stat-card__value">{{ stats.supplemental.toLocaleString() }}</div>
-        <div class="stat-card__label">Supplemental <span class="muted">({{ pctOfTotal(stats.supplemental) }}%)</span></div>
-        <div class="stat-card__meta">Domain- or study-specific</div>
-      </div>
-    </section>
-
     <!-- High-level breakdowns — three donuts over the same filtered set so
-         the reviewer can size up the collection at a glance. -->
+         the reviewer can size up the collection at a glance. The donut
+         center totals + the per-tier slice counts replace what the stat
+         cards used to show, so this section also serves as the "hero". -->
     <section class="donut-row">
       <DonutChart
         title="By tier"
