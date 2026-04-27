@@ -36,6 +36,7 @@ type Config struct {
 	AllowlistToggleSSM string // SSM String, "true" / "false"
 	RecaptchaToggleSSM string // SSM String, "true" / "false"
 	RecaptchaSecretSSM string // SSM SecureString — Google reCAPTCHA secret key
+	DashboardConfigSSM string // SSM String, JSON — review scope + enabled sources
 
 	// reCAPTCHA bookkeeping (action name + minimum acceptable score)
 	RecaptchaAction   string
@@ -62,6 +63,7 @@ func MustLoad() Config {
 		AllowlistToggleSSM: requireEnv("ALLOWLIST_TOGGLE_SSM_NAME"),
 		RecaptchaToggleSSM: requireEnv("RECAPTCHA_TOGGLE_SSM_NAME"),
 		RecaptchaSecretSSM: requireEnv("RECAPTCHA_SECRET_SSM_NAME"),
+		DashboardConfigSSM: requireEnv("DASHBOARD_CONFIG_SSM_NAME"),
 
 		RecaptchaAction:   optionalEnv("RECAPTCHA_ACTION", "request_code"),
 		RecaptchaMinScore: optionalFloat("RECAPTCHA_MIN_SCORE", 0.5),

@@ -78,6 +78,7 @@ data "aws_iam_policy_document" "lambda_inline" {
       aws_ssm_parameter.allowlist_enabled.arn,
       aws_ssm_parameter.recaptcha_enabled.arn,
       aws_ssm_parameter.recaptcha_secret.arn,
+      aws_ssm_parameter.dashboard_config.arn,
     ]
   }
 }
@@ -126,6 +127,7 @@ resource "aws_lambda_function" "this" {
       ALLOWLIST_TOGGLE_SSM_NAME = aws_ssm_parameter.allowlist_enabled.name
       RECAPTCHA_TOGGLE_SSM_NAME = aws_ssm_parameter.recaptcha_enabled.name
       RECAPTCHA_SECRET_SSM_NAME = aws_ssm_parameter.recaptcha_secret.name
+      DASHBOARD_CONFIG_SSM_NAME = aws_ssm_parameter.dashboard_config.name
 
       RECAPTCHA_ACTION    = var.recaptcha_action
       RECAPTCHA_MIN_SCORE = tostring(var.recaptcha_min_score)

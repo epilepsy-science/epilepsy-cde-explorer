@@ -46,6 +46,8 @@ var routes = map[string]route{
 	"POST /v1/auth/request-code": {pub: handlers.RequestCode},
 	"POST /v1/auth/verify-code":  {pub: handlers.VerifyCode},
 
+	"GET /v1/dashboard-config": {pub: handlers.DashboardConfig},
+
 	"GET /v1/me":    {auth: handlers.GetMe},
 	"PUT /v1/me":    {auth: handlers.PutMe},
 	"DELETE /v1/me": {auth: handlers.DeleteMe},

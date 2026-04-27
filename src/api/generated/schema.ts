@@ -27,6 +27,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/dashboard-config": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Runtime dashboard config (review scope + enabled sources)
+         * @description Returns the operator-flippable knobs the dashboard reads at boot.
+         *     Driven by an SSM parameter cached for ~60s in the Lambda; empty or
+         *     unparseable SSM falls back to permissive defaults (all open, all
+         *     sources).
+         */
+        get: operations["getDashboardConfig"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/verify-code": {
         parameters: {
             query?: never;
@@ -161,6 +184,22 @@ export interface components {
         TargetType: "cde" | "bundle";
         /** @enum {string} */
         Classification: "Core" | "Recommended" | "Supplemental" | "Not Applicable";
+        ReviewScope: {
+            /** @description When true, every CDE/Bundle is open for review. */
+            all_open: boolean;
+            /** @description cde_name allowlist when all_open is false. */
+            cdes: string[];
+            /** @description bundle_name allowlist when all_open is false. */
+            bundles: string[];
+        };
+        DashboardConfig: {
+            review_scope: components["schemas"]["ReviewScope"];
+            /**
+             * @description Source keys (e.g. "ninds-epilepsy", "nlm", "nt-preceds") to surface.
+             *     Empty array means all sources are enabled.
+             */
+            enabled_sources: string[];
+        };
         Error: {
             error: {
                 /**
@@ -352,6 +391,27 @@ export interface operations {
                 };
             };
             429: components["responses"]["TooManyRequests"];
+            500: components["responses"]["ServerError"];
+        };
+    };
+    getDashboardConfig: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Config */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DashboardConfig"];
+                };
+            };
             500: components["responses"]["ServerError"];
         };
     };

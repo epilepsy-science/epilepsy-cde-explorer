@@ -12,6 +12,7 @@
 
 import { computed, ref, watch } from 'vue';
 import { api, apiToken, setToken, unwrap } from '@/api/client';
+import { fetchDashboardConfig } from '@/api/dashboardConfig';
 import { useDuckDB } from '@/composables/useDuckDB';
 import type {
   DiseaseKey,
@@ -258,9 +259,23 @@ async function selectSessionTargets(
       domain: r.cde_domain,
     })),
   ];
-  const candidates = filter.includeReviewed
+
+  // Operator-controlled review scope from /v1/dashboard-config. When
+  // all_open is false, restrict the candidate pool to the named CDEs +
+  // Bundles. Permissive when fetch failed or scope is missing.
+  const config = await fetchDashboardConfig();
+  const scope = config.review_scope;
+  const scopedCandidates = scope.all_open
     ? allCandidates
-    : allCandidates.filter((t) => !reviewed.has(`${t.type}:${t.ref}`));
+    : allCandidates.filter((t) =>
+        t.type === 'cde'
+          ? scope.cdes.includes(t.ref)
+          : scope.bundles.includes(t.ref),
+      );
+
+  const candidates = filter.includeReviewed
+    ? scopedCandidates
+    : scopedCandidates.filter((t) => !reviewed.has(`${t.type}:${t.ref}`));
 
   shuffle(candidates);
   const perDomainCap = 5;

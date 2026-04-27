@@ -65,6 +65,30 @@ paths:
         connectionType: INTERNET
         uri: ${lambda_invoke_arn}
 
+  /v1/dashboard-config:
+    get:
+      summary: Runtime dashboard config (review scope + enabled sources)
+      description: |
+        Returns the operator-flippable knobs the dashboard reads at boot.
+        Driven by an SSM parameter cached for ~60s in the Lambda; empty or
+        unparseable SSM falls back to permissive defaults (all open, all
+        sources).
+      operationId: getDashboardConfig
+      security: []
+      responses:
+        '200':
+          description: Config
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DashboardConfig' }
+        '500': { $ref: '#/components/responses/ServerError' }
+      x-amazon-apigateway-integration:
+        type: aws_proxy
+        httpMethod: POST
+        payloadFormatVersion: '2.0'
+        connectionType: INTERNET
+        uri: ${lambda_invoke_arn}
+
   /v1/auth/verify-code:
     post:
       summary: Verify an email code, return a JWT
@@ -305,6 +329,35 @@ components:
     Classification:
       type: string
       enum: [Core, Recommended, Supplemental, 'Not Applicable']
+
+    # ── Runtime config ───────────────────────────────────────────────────────
+    ReviewScope:
+      type: object
+      required: [all_open, cdes, bundles]
+      properties:
+        all_open:
+          type: boolean
+          description: When true, every CDE/Bundle is open for review.
+        cdes:
+          type: array
+          items: { type: string }
+          description: cde_name allowlist when all_open is false.
+        bundles:
+          type: array
+          items: { type: string }
+          description: bundle_name allowlist when all_open is false.
+
+    DashboardConfig:
+      type: object
+      required: [review_scope, enabled_sources]
+      properties:
+        review_scope: { $ref: '#/components/schemas/ReviewScope' }
+        enabled_sources:
+          type: array
+          items: { type: string }
+          description: |
+            Source keys (e.g. "ninds-epilepsy", "nlm", "nt-preceds") to surface.
+            Empty array means all sources are enabled.
 
     # ── Errors ───────────────────────────────────────────────────────────────
     Error:

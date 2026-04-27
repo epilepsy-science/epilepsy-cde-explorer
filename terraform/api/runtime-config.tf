@@ -32,6 +32,37 @@ resource "aws_ssm_parameter" "recaptcha_enabled" {
   }
 }
 
+# ── Dashboard config — review scope + enabled sources ──────────────────────
+# Single JSON parameter the dashboard fetches via GET /v1/dashboard-config.
+# Holds two knobs:
+#   - review_scope: which CDEs/Bundles are open for reviewer classification.
+#       { "all_open": true } → no restriction (default)
+#       { "all_open": false, "cdes": ["..."], "bundles": ["..."] } → allowlist
+#   - enabled_sources: which data sources contribute to what's visible.
+#       []                              → no restriction (all sources visible)
+#       ["ninds-epilepsy", "nlm", ...]  → only these source keys
+#
+# Operators flip via:
+#   aws --profile pennsieve-dev-admin --region us-east-1 ssm put-parameter \
+#     --name /dev/epilepsy-cde-explorer-api/dashboard-config \
+#     --value '{"review_scope":{"all_open":true},"enabled_sources":[]}' \
+#     --type String --overwrite
+resource "aws_ssm_parameter" "dashboard_config" {
+  name  = "/${var.environment}/${var.service_name}/dashboard-config"
+  type  = "String"
+  value = jsonencode({
+    review_scope    = { all_open = true, cdes = [], bundles = [] }
+    enabled_sources = []
+  })
+
+  description = "Runtime config consumed by the dashboard at boot — review scope + enabled sources."
+
+  # Operators flip this via CLI; don't have Terraform fight them.
+  lifecycle {
+    ignore_changes = [value]
+  }
+}
+
 # ── reCAPTCHA secret ────────────────────────────────────────────────────────
 # Created empty by Terraform; you populate it via:
 #   aws --profile pennsieve-dev-admin --region us-east-1 ssm put-parameter \

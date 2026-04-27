@@ -1,5 +1,6 @@
 import { ref, readonly } from 'vue';
 import * as duckdb from '@duckdb/duckdb-wasm';
+import { fetchDashboardConfig } from '@/api/dashboardConfig';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -62,8 +63,22 @@ async function init(): Promise<DuckDBHandle> {
       throw new Error(`Missing ${base}/manifest.json — run \`yarn prepare-data\``);
     }
     const manifest = (await manifestRes.json()) as Manifest;
-    const sources = manifest.sources.slice().sort((a, b) => a.order - b.order);
-    if (!sources.length) throw new Error('manifest.json has no sources');
+    const allSources = manifest.sources.slice().sort((a, b) => a.order - b.order);
+    if (!allSources.length) throw new Error('manifest.json has no sources');
+
+    // Operator-controlled source allowlist comes from /v1/dashboard-config
+    // (SSM-backed, 60s server-side cache). Empty array (or fetch failure)
+    // means "all sources" — permissive default keeps the dashboard usable
+    // when the API is briefly unavailable.
+    const config = await fetchDashboardConfig();
+    const sources = config.enabled_sources.length
+      ? allSources.filter((s) => config.enabled_sources.includes(s.key))
+      : allSources;
+    if (!sources.length) {
+      throw new Error(
+        'enabled_sources in dashboard-config matches none of the available sources',
+      );
+    }
 
     // ── Register each source's parquets with namespaced file IDs ────────────
     // DuckDB references registered files by name; we register as
