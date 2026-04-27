@@ -39,6 +39,16 @@ const activeNav = computed(() => {
         </el-tag>
         <el-tag v-else-if="status === 'error'" type="danger" size="small">Data load error</el-tag>
       </div>
+      <a
+        class="app-header__parent-link"
+        href="https://epilepsy.science"
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Open the main epilepsy.science site"
+      >
+        epilepsy.science
+        <el-icon class="app-header__parent-link-icon"><TopRight /></el-icon>
+      </a>
     </header>
 
     <main class="app-main">
@@ -117,6 +127,29 @@ const activeNav = computed(() => {
 
   &__status {
     margin-left: auto;
+  }
+
+  // Link back to the parent site (epilepsy.science). Sits flush right of
+  // the nav, after the (usually invisible) status slot. Subtle so it
+  // doesn't compete with the in-app nav.
+  &__parent-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    color: $gray_5;
+    text-decoration: none;
+    border-left: 1px solid $lineColor1;
+    padding-left: 1rem;
+    margin-left: 0.5rem;
+
+    &:hover {
+      color: $es-primary-color;
+    }
+  }
+
+  &__parent-link-icon {
+    font-size: 11px;
   }
 }
 
