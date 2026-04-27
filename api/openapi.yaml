@@ -438,6 +438,10 @@ components:
           type: string
           minLength: 1
           maxLength: 200
+        linkedin_url:
+          type: string
+          maxLength: 500
+          description: Optional LinkedIn (or other) profile URL. Must start with http(s)://.
         primary_diseases:
           type: array
           minItems: 1
@@ -450,6 +454,9 @@ components:
       properties:
         email: { type: string, format: email }
         name: { type: string }
+        linkedin_url:
+          type: string
+          description: Optional LinkedIn (or other) profile URL.
         primary_diseases:
           type: array
           items: { $ref: '#/components/schemas/Disease' }

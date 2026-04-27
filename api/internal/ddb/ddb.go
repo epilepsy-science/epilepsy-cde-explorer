@@ -57,6 +57,7 @@ type Profile struct {
 
 	Email            string   `dynamodbav:"email"`
 	Name             string   `dynamodbav:"name"`
+	LinkedinURL      string   `dynamodbav:"linkedin_url,omitempty"`
 	PrimaryDiseases  []string `dynamodbav:"primary_diseases"`
 	PrimaryStudyType string   `dynamodbav:"primary_study_type,omitempty"`
 	CreatedAt        string   `dynamodbav:"created_at"`

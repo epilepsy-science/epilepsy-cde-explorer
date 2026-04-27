@@ -16,9 +16,14 @@ interface SourceManifestEntry {
   order: number;
   files: string[];
 }
+interface ManifestDerived {
+  concept?: string;
+  cde_represents_concept?: string;
+}
 interface Manifest {
   generated_at: string;
   sources: SourceManifestEntry[];
+  derived?: ManifestDerived | null;
 }
 
 let handlePromise: Promise<DuckDBHandle> | null = null;
@@ -93,6 +98,22 @@ async function init(): Promise<DuckDBHandle> {
         const model = f.replace(/\.parquet$/, '');
         if (!perModelPresence[model]) perModelPresence[model] = [];
         perModelPresence[model].push(fileId);
+      }
+    }
+
+    // ── Register derived global parquets ────────────────────────────────────
+    // The concept registry is a single global file (not per-source) because
+    // multiple sources contribute to the same concept records. Manifest
+    // omits the section when no source contributed concepts.
+    const derivedFileIds: { concept?: string; cde_represents_concept?: string } = {};
+    if (manifest.derived) {
+      for (const [model, fileName] of Object.entries(manifest.derived)) {
+        if (!fileName) continue;
+        const fileId = `__derived__${fileName}`;
+        const url = `${base}/${fileName}`;
+        if (!(await fetchWithBinaryCheck(url))) continue;
+        await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
+        derivedFileIds[model as keyof typeof derivedFileIds] = fileId;
       }
     }
 
@@ -256,6 +277,53 @@ async function init(): Promise<DuckDBHandle> {
       FROM relationships_raw r
       LEFT JOIN cde_id_map m ON CAST(m.original_id AS VARCHAR) = CAST(r.target_id AS VARCHAR)
     `);
+
+    // ── Concept registry (derived global) ───────────────────────────────────
+    // First-class concept entity + cde→concept relationship, derived at
+    // data-prep time from NLM dec_identifier columns. Empty stub views so
+    // downstream SQL can JOIN unconditionally even when no source carried
+    // dec_identifier (fully NINDS- or demo-only loadouts).
+    if (derivedFileIds.concept) {
+      await conn.query(
+        `CREATE OR REPLACE VIEW concept AS SELECT * FROM '${derivedFileIds.concept}'`,
+      );
+    } else {
+      await conn.query(`
+        CREATE OR REPLACE VIEW concept AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS id,
+          CAST(NULL AS VARCHAR) AS source,
+          CAST(NULL AS VARCHAR) AS identifier,
+          CAST(NULL AS VARCHAR) AS preferred_label,
+          CAST(NULL AS VARCHAR) AS definition,
+          CAST(NULL AS VARCHAR) AS alt_labels
+        WHERE false
+      `);
+    }
+    if (derivedFileIds.cde_represents_concept) {
+      // Remap cde_id through the canonical-id map so concept lookups land on
+      // the picked-source CDE row, matching the cde view's identity.
+      await conn.query(`
+        CREATE OR REPLACE VIEW cde_represents_concept AS
+        SELECT
+          COALESCE(CAST(m.canonical_id AS VARCHAR), CAST(r.cde_id AS VARCHAR)) AS cde_id,
+          r.concept_id,
+          r.role,
+          r._source_key
+        FROM '${derivedFileIds.cde_represents_concept}' r
+        LEFT JOIN cde_id_map m ON CAST(m.original_id AS VARCHAR) = CAST(r.cde_id AS VARCHAR)
+      `);
+    } else {
+      await conn.query(`
+        CREATE OR REPLACE VIEW cde_represents_concept AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS cde_id,
+          CAST(NULL AS VARCHAR) AS concept_id,
+          CAST(NULL AS VARCHAR) AS role,
+          CAST(NULL AS VARCHAR) AS _source_key
+        WHERE false
+      `);
+    }
 
     // ── Detect optional classification columns (same pattern as before) ─────
     const clsColsRes = await conn.query(

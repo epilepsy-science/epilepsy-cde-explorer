@@ -218,6 +218,121 @@ async function emitSource(sourceDir, prov, order) {
   return modelsEmitted;
 }
 
+/**
+ * Derive a global concept registry from CDE rows that carry NLM Data Element
+ * Concept identifiers (`dec_identifier` + `dec_terminology_source`).
+ *
+ * We split each pipe-joined column into individual concept references, then
+ * build:
+ *   - public/data/concept.parquet — one row per distinct (source, identifier)
+ *     with placeholder enrichment columns (Phase 4 fills these from FHIR
+ *     terminology services).
+ *   - public/data/cde_represents_concept.parquet — relationship rows that
+ *     link each CDE to every concept it carries an identifier for. The
+ *     `role` column defaults to 'primary'; later phases let curators set
+ *     'unit' / 'qualifier' / 'other' for supporting elements.
+ *
+ * NINDS CDEs and NT-PRECEDS demo records don't ship `dec_identifier`, so
+ * they end up unmapped here. The Phase 3 curation tool will be the path to
+ * cover those manually.
+ *
+ * Both parquets sit at the data root (sibling to manifest.json), not under
+ * a per-source subdir, because concepts are inherently a derived global
+ * registry — multiple sources contribute to the same concept records.
+ */
+async function emitConceptRegistry() {
+  const cdeGlob = resolve(OUT, '**', 'cde.parquet').replace(/\\/g, '/');
+  const conceptParquet = resolve(OUT, 'concept.parquet');
+  const relParquet = resolve(OUT, 'cde_represents_concept.parquet');
+
+  // Probe whether any source actually carries dec_identifier — pass through
+  // a single TRY-shaped query to avoid blowing up on sources without the
+  // column (NINDS-only loadouts, demo runs).
+  let hasDec = false;
+  try {
+    const cols = await all(
+      `SELECT column_name FROM (DESCRIBE SELECT * FROM read_parquet('${cdeGlob}', union_by_name=true) LIMIT 0)`,
+    );
+    hasDec =
+      cols.some((c) => c.column_name === 'dec_identifier') &&
+      cols.some((c) => c.column_name === 'dec_terminology_source');
+  } catch {
+    hasDec = false;
+  }
+  if (!hasDec) {
+    console.log('  (skipping concept registry — no dec_identifier in any source)');
+    return null;
+  }
+
+  // Pair pipe-joined identifier + source columns positionally so we don't
+  // cross-product. range(1, len+1) materializes the indices; we pluck both
+  // arrays at the same position so the alignment matches what fetch-nlm-cde
+  // emitted. Concept stable ID is a slug of source+identifier so the same
+  // concept across sources produces the same registry row.
+  await run(`
+    CREATE OR REPLACE VIEW _cde_concept_pairs AS
+    WITH split AS (
+      SELECT
+        id AS cde_id,
+        _source_key,
+        string_split(dec_identifier, '|') AS ids,
+        string_split(dec_terminology_source, '|') AS srcs
+      FROM read_parquet('${cdeGlob}', union_by_name=true)
+      WHERE dec_identifier IS NOT NULL AND TRIM(dec_identifier) != ''
+    ),
+    paired AS (
+      SELECT
+        cde_id,
+        _source_key,
+        TRIM(ids[i]) AS identifier,
+        TRIM(srcs[i]) AS source
+      FROM split, range(1, COALESCE(len(ids), 0) + 1) AS r(i)
+    )
+    SELECT
+      cde_id,
+      _source_key,
+      identifier,
+      source,
+      LOWER(REGEXP_REPLACE(source || '_' || identifier, '[^a-zA-Z0-9]+', '_', 'g')) AS concept_id
+    FROM paired
+    WHERE identifier IS NOT NULL AND identifier != ''
+      AND source IS NOT NULL AND source != ''
+  `);
+
+  await run(`
+    COPY (
+      SELECT DISTINCT
+        concept_id AS id,
+        source,
+        identifier,
+        CAST(NULL AS VARCHAR) AS preferred_label,
+        CAST(NULL AS VARCHAR) AS definition,
+        CAST(NULL AS VARCHAR) AS alt_labels
+      FROM _cde_concept_pairs
+    ) TO '${conceptParquet}' (FORMAT 'parquet', COMPRESSION 'zstd');
+  `);
+  await run(`
+    COPY (
+      SELECT
+        cde_id,
+        concept_id,
+        'primary' AS role,
+        _source_key
+      FROM _cde_concept_pairs
+    ) TO '${relParquet}' (FORMAT 'parquet', COMPRESSION 'zstd');
+  `);
+
+  const [{ n: conceptCount }] = await all(
+    `SELECT count(*) AS n FROM read_parquet('${conceptParquet}')`,
+  );
+  const [{ n: relCount }] = await all(
+    `SELECT count(*) AS n FROM read_parquet('${relParquet}')`,
+  );
+  console.log(`\n→ concept.parquet                  (${conceptCount} distinct concepts)`);
+  console.log(`→ cde_represents_concept.parquet  (${relCount} relationships)`);
+  return { conceptCount: Number(conceptCount), relCount: Number(relCount) };
+}
+
 async function main() {
   const manifestSources = [];
   for (let i = 0; i < sourceDirs.length; i++) {
@@ -234,12 +349,23 @@ async function main() {
     });
   }
 
+  // Derive global concept registry from any source that carries dec_identifier.
+  const conceptStats = await emitConceptRegistry();
+
   const manifest = {
     generated_at: new Date().toISOString(),
     sources: manifestSources,
+    // Derived globals — top-level files, not per-source. Optional; the
+    // dashboard treats absence as "concept layer not built".
+    derived: conceptStats
+      ? {
+          concept: 'concept.parquet',
+          cde_represents_concept: 'cde_represents_concept.parquet',
+        }
+      : null,
   };
   writeFileSync(resolve(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  console.log(`\n→ manifest.json  (${manifestSources.length} sources)`);
+  console.log(`\n→ manifest.json  (${manifestSources.length} sources${conceptStats ? `, ${conceptStats.conceptCount} concepts` : ''})`);
 
   conn.close();
   db.close(() => {

@@ -112,6 +112,7 @@ type StudyTypePref = 'Clinical' | 'Preclinical' | null;
 const editing = ref(false);
 const form = ref({
   name: '',
+  linkedin_url: '',
   primary_diseases: [] as DiseaseKey[],
   primary_study_type: null as StudyTypePref,
 });
@@ -123,6 +124,7 @@ onMounted(async () => {
   if (reviewer.value) {
     form.value = {
       name: reviewer.value.name,
+      linkedin_url: reviewer.value.linkedin_url ?? '',
       primary_diseases: [...reviewer.value.primary_diseases],
       primary_study_type: reviewer.value.primary_study_type,
     };
@@ -133,6 +135,7 @@ function startEditing() {
   if (reviewer.value) {
     form.value = {
       name: reviewer.value.name,
+      linkedin_url: reviewer.value.linkedin_url ?? '',
       primary_diseases: [...reviewer.value.primary_diseases],
       primary_study_type: reviewer.value.primary_study_type,
     };
@@ -153,6 +156,7 @@ async function saveProfile() {
   try {
     await saveReviewer({
       name,
+      linkedin_url: form.value.linkedin_url.trim() || null,
       primary_diseases: form.value.primary_diseases,
       primary_study_type: form.value.primary_study_type,
     });
@@ -389,19 +393,37 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
           </p>
         </header>
 
+        <!-- Two rows × three columns. Row 1: name + LinkedIn (span-2 because
+             the URL is long). Row 2: disease expertise (span-2) + study
+             context (1 col) so the related "scope" controls share a line. -->
         <div class="form-grid">
           <label>
             <span class="form-grid__label">Your name</span>
             <el-input v-model="form.name" placeholder="e.g. Dr. Jane Doe" />
           </label>
           <label class="form-grid__span-2">
-            <span class="form-grid__label">Disease expertise</span>
+            <span class="form-grid__label">
+              LinkedIn profile
+              <span class="form-grid__label-hint">— optional</span>
+            </span>
+            <el-input
+              v-model="form.linkedin_url"
+              placeholder="https://www.linkedin.com/in/your-handle"
+              maxlength="500"
+              type="url"
+            />
+          </label>
+          <label class="form-grid__span-2">
+            <span class="form-grid__label">
+              Disease expertise
+              <span class="form-grid__label-hint">— select all that apply</span>
+            </span>
             <el-select
               v-model="form.primary_diseases"
               multiple
               collapse-tags
               collapse-tags-tooltip
-              placeholder="Pick one or more diseases you can review (e.g. Epilepsy, PTE, TBI)"
+              placeholder="Select all that apply (e.g. Epilepsy, PTE, TBI)"
               style="width: 100%"
             >
               <el-option
@@ -444,7 +466,17 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
             {{ reviewer.name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '·' }}
           </div>
           <div class="reviewer-bar__identity">
-            <div class="reviewer-bar__name">{{ reviewer.name }}</div>
+            <div class="reviewer-bar__name">
+              {{ reviewer.name }}
+              <a
+                v-if="reviewer.linkedin_url"
+                :href="reviewer.linkedin_url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="reviewer-bar__linkedin"
+                :title="reviewer.linkedin_url"
+              >LinkedIn ↗</a>
+            </div>
             <div class="reviewer-bar__scope subtle">
               <span
                 v-for="dk in reviewer?.primary_diseases ?? []"
@@ -668,6 +700,17 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     font-weight: 600;
   }
 
+  // Inline secondary cue beside a field label — for cardinality affordances
+  // ("select all that apply") that need to stay visible after the field's
+  // placeholder disappears.
+  &__label-hint {
+    font-weight: 500;
+    color: $gray_4;
+    text-transform: none;
+    letter-spacing: 0.2px;
+    margin-left: 6px;
+  }
+
   &__hint {
     font-size: 11px;
     margin-top: 4px;
@@ -756,6 +799,23 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     font-weight: 600;
     font-size: 14px;
     color: $gray_6;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  &__linkedin {
+    font-size: 11px;
+    font-weight: 500;
+    color: $gray_5;
+    text-decoration: none;
+    border-bottom: 1px dashed transparent;
+
+    &:hover {
+      color: $es-primary-color;
+      border-bottom-color: $es-primary-color;
+    }
   }
 
   &__scope {

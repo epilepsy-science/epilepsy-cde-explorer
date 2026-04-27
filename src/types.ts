@@ -82,6 +82,39 @@ export interface BundleRow {
   cde_count: number;
 }
 
+// ── Concept layer ──────────────────────────────────────────────────────────
+// Each Concept is the underlying semantic anchor for one or more CDEs.
+// `source` + `identifier` is the natural key (e.g., LOINC + "30525-0",
+// caDSR + "1285", SNOMED CT + "271649006"). The enrichment columns are
+// populated by the Phase 4 terminology-service cache; until then they're
+// null and the UI falls back to "<source>:<identifier>" as the label.
+export interface ConceptRow {
+  id: string;
+  source: string;
+  identifier: string;
+  preferred_label: string | null;
+  definition: string | null;
+  /** Pipe-separated alternative labels from the terminology service. */
+  alt_labels: string | null;
+}
+
+/**
+ * How a CDE relates to the concept it points at:
+ *   - primary: the CDE *is* the concept's measurement (e.g., age-value)
+ *   - unit: metadata on a primary CDE (e.g., age-unit)
+ *   - qualifier: refines a primary CDE (e.g., age-method)
+ *   - other: anything we haven't classified yet
+ *
+ * Default at extraction is 'primary'; later phases let admins refine.
+ */
+export type ConceptRole = 'primary' | 'unit' | 'qualifier' | 'other';
+
+export interface CdeRepresentsConcept {
+  cde_id: string;
+  concept_id: string;
+  role: ConceptRole;
+}
+
 export type Classification =
   | 'Core'
   | 'Recommended'
@@ -187,6 +220,8 @@ export interface Reviewer {
   /** Verified email — canonical identity (was `id` in the localStorage era). */
   email: string;
   name: string;
+  /** Optional LinkedIn (or other) profile URL. null when not provided. */
+  linkedin_url: string | null;
   /**
    * Diseases this reviewer is qualified to review. Sessions cycle through them
    * one at a time via a "Next disease" button.

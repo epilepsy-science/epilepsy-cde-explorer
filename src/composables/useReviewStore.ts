@@ -100,6 +100,7 @@ async function ensureLoaded(): Promise<void> {
 
 async function saveReviewer(partial: {
   name: string;
+  linkedin_url?: string | null;
   primary_diseases: DiseaseKey[];
   primary_study_type: 'Clinical' | 'Preclinical' | null;
 }): Promise<Reviewer> {
@@ -107,6 +108,7 @@ async function saveReviewer(partial: {
     api.PUT('/v1/me', {
       body: {
         name: partial.name,
+        linkedin_url: partial.linkedin_url ?? '',
         primary_diseases: partial.primary_diseases,
         primary_study_type: partial.primary_study_type ?? '',
       },
@@ -221,11 +223,16 @@ async function selectSessionTargets(
   const diseaseCol = diseaseColumn(filter.disease);
   const stClause = studyTypeClause(filter.studyType);
 
+  // Bundled CDEs are reviewed as a bundle (bundles travel together by
+  // definition — same rule the CDE drawer enforces for "Add to CRF").
+  // Filter on bundle_name (not bundle_id) so a CDE with a bundle_name but
+  // a missing bundle_id row in the data still gets routed through its
+  // bundle, not surfaced as a standalone target.
   const bundleRows = await query<{ bundle_name: string; cde_domain: string | null }>(
-    `SELECT DISTINCT bundle_name, any_value(cde_domain) AS cde_domain
+    `SELECT bundle_name, any_value(cde_domain) AS cde_domain
      FROM cde_full
      WHERE ${diseaseCol} = 'Y'
-       AND bundle_id IS NOT NULL
+       AND bundle_name IS NOT NULL
        ${stClause}
      GROUP BY bundle_name`,
   );
@@ -233,7 +240,7 @@ async function selectSessionTargets(
     `SELECT cde_name, cde_domain
      FROM cde_full
      WHERE ${diseaseCol} = 'Y'
-       AND bundle_id IS NULL
+       AND bundle_name IS NULL
        ${stClause}`,
   );
 
@@ -336,6 +343,7 @@ async function coverageFor(
 interface ServerProfile {
   email: string;
   name: string;
+  linkedin_url?: string | null;
   primary_diseases?: DiseaseKey[] | string[];
   // The OpenAPI schema marks this nullable + with an "" enum value (= both),
   // so the generated TS type widens to `'Clinical' | 'Preclinical' | '' | null
@@ -361,6 +369,7 @@ function profileToReviewer(p: ServerProfile): Reviewer {
   return {
     email: p.email,
     name: p.name,
+    linkedin_url: p.linkedin_url ?? null,
     primary_diseases: (p.primary_diseases ?? []) as DiseaseKey[],
     primary_study_type:
       p.primary_study_type === 'Clinical' || p.primary_study_type === 'Preclinical'

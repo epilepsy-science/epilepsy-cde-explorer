@@ -248,6 +248,8 @@ export interface components {
         };
         ProfileBody: {
             name: string;
+            /** @description Optional LinkedIn (or other) profile URL. Must start with http(s)://. */
+            linkedin_url?: string;
             primary_diseases: components["schemas"]["Disease"][];
             primary_study_type?: components["schemas"]["StudyType"];
         };
@@ -255,6 +257,8 @@ export interface components {
             /** Format: email */
             email: string;
             name: string;
+            /** @description Optional LinkedIn (or other) profile URL. */
+            linkedin_url?: string;
             primary_diseases: components["schemas"]["Disease"][];
             primary_study_type?: components["schemas"]["StudyType"];
             /** Format: date-time */

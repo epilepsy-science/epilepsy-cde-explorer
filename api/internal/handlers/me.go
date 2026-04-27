@@ -21,6 +21,7 @@ import (
 type profileFields struct {
 	Email            string   `json:"email"`
 	Name             string   `json:"name"`
+	LinkedinURL      string   `json:"linkedin_url,omitempty"`
 	PrimaryDiseases  []string `json:"primary_diseases"`
 	PrimaryStudyType string   `json:"primary_study_type,omitempty"`
 	CreatedAt        string   `json:"created_at,omitempty"`
@@ -53,6 +54,7 @@ var allowedStudyTypes = []string{"", "Clinical", "Preclinical"}
 
 type mePutBody struct {
 	Name             string   `json:"name"`
+	LinkedinURL      string   `json:"linkedin_url"`
 	PrimaryDiseases  []string `json:"primary_diseases"`
 	PrimaryStudyType string   `json:"primary_study_type"`
 }
@@ -80,6 +82,13 @@ func PutMe(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Services,
 	if !slices.Contains(allowedStudyTypes, body.PrimaryStudyType) {
 		return nil, apihttp.BadRequest("primary_study_type must be empty, Clinical, or Preclinical")
 	}
+	linkedin := strings.TrimSpace(body.LinkedinURL)
+	if len(linkedin) > 500 {
+		return nil, apihttp.BadRequest("linkedin_url is too long (max 500 chars)")
+	}
+	if linkedin != "" && !strings.HasPrefix(linkedin, "http://") && !strings.HasPrefix(linkedin, "https://") {
+		return nil, apihttp.BadRequest("linkedin_url must start with http:// or https://")
+	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	createdAt, err := lookupCreatedAt(ctx, s, caller.Email)
@@ -95,6 +104,7 @@ func PutMe(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Services,
 		SK:               ddb.SKProfile,
 		Email:            caller.Email,
 		Name:             name,
+		LinkedinURL:      linkedin,
 		PrimaryDiseases:  body.PrimaryDiseases,
 		PrimaryStudyType: body.PrimaryStudyType,
 		CreatedAt:        createdAt,
@@ -113,6 +123,7 @@ func PutMe(ctx context.Context, req events.APIGatewayV2HTTPRequest, s *Services,
 	return profileFields{
 		Email:            profile.Email,
 		Name:             profile.Name,
+		LinkedinURL:      profile.LinkedinURL,
 		PrimaryDiseases:  profile.PrimaryDiseases,
 		PrimaryStudyType: profile.PrimaryStudyType,
 		CreatedAt:        profile.CreatedAt,
@@ -171,6 +182,7 @@ func readProfileFields(ctx context.Context, s *Services, email string) (*profile
 	return &profileFields{
 		Email:            p.Email,
 		Name:             p.Name,
+		LinkedinURL:      p.LinkedinURL,
 		PrimaryDiseases:  p.PrimaryDiseases,
 		PrimaryStudyType: p.PrimaryStudyType,
 		CreatedAt:        p.CreatedAt,
