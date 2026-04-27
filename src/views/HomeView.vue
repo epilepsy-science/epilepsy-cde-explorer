@@ -171,7 +171,7 @@ function pctOfTotal(n: number) {
         <div class="hero__eyebrow">NT-PRECEDS · NINDS · CDE Library</div>
         <h1 class="hero__title">
           Curated Common Data Elements for
-          <span class="hero__accent">Epilepsy, TBI &amp; PTE</span>
+          <span class="hero__accent">Neurotrauma &amp; Epilepsy</span>
           research
         </h1>
         <p class="hero__lede">
@@ -295,11 +295,44 @@ function pctOfTotal(n: number) {
         </p>
       </header>
 
+    <!-- Featured individual CDEs -->
+    <section class="panel library__panel">
+      <header class="panel__head panel__head--row">
+        <div>
+          <h3>Featured CDEs</h3>
+          <p class="subtle">
+            Individual elements marked Core across the most diseases.
+          </p>
+        </div>
+        <router-link class="panel__link" to="/cdes">Browse all CDEs →</router-link>
+      </header>
+      <div v-if="topCdes.length === 0" class="subtle empty">
+        No CDEs available.
+      </div>
+      <div v-else class="gallery">
+        <article
+          v-for="c in topCdes"
+          :key="c.cde_id"
+          class="cde-card"
+          @click="goToCdes({ q: c.cde_name })"
+        >
+          <header class="cde-card__head">
+            <span class="cde-card__core">Core × {{ c.core_count }}</span>
+            <span v-if="c.bundle_domain" class="cde-card__domain">{{ c.bundle_domain }}</span>
+          </header>
+          <h3 class="cde-card__title">{{ c.cde_name }}</h3>
+          <p v-if="c.preferred_question_text" class="cde-card__q">
+            {{ c.preferred_question_text }}
+          </p>
+        </article>
+      </div>
+    </section>
+
     <!-- Case Report Forms gallery -->
     <section class="panel library__panel">
       <header class="panel__head panel__head--row">
         <div>
-          <h3>Case Report Forms</h3>
+          <h3>Featured CRFs</h3>
           <p class="subtle">
             Pre-assembled forms composed of CDEs, Bundles, and instructions.
           </p>
@@ -341,39 +374,6 @@ function pctOfTotal(n: number) {
               · ~{{ c.estimated_duration_minutes }} min
             </span>
           </footer>
-        </article>
-      </div>
-    </section>
-
-    <!-- Featured individual CDEs -->
-    <section class="panel library__panel">
-      <header class="panel__head panel__head--row">
-        <div>
-          <h3>Featured CDEs</h3>
-          <p class="subtle">
-            Individual elements marked Core across the most diseases.
-          </p>
-        </div>
-        <router-link class="panel__link" to="/cdes">Browse all CDEs →</router-link>
-      </header>
-      <div v-if="topCdes.length === 0" class="subtle empty">
-        No CDEs available.
-      </div>
-      <div v-else class="gallery">
-        <article
-          v-for="c in topCdes"
-          :key="c.cde_id"
-          class="cde-card"
-          @click="goToCdes({ q: c.cde_name })"
-        >
-          <header class="cde-card__head">
-            <span class="cde-card__core">Core × {{ c.core_count }}</span>
-            <span v-if="c.bundle_domain" class="cde-card__domain">{{ c.bundle_domain }}</span>
-          </header>
-          <h3 class="cde-card__title">{{ c.cde_name }}</h3>
-          <p v-if="c.preferred_question_text" class="cde-card__q">
-            {{ c.preferred_question_text }}
-          </p>
         </article>
       </div>
     </section>

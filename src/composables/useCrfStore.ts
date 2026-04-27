@@ -202,6 +202,74 @@ function deleteCustomCrf(crfId: string): boolean {
   return custom.value.length < before;
 }
 
+// ── Editing custom CRFs ─────────────────────────────────────────────────────
+// Patch any of the metadata fields on a custom CRF. No-op for seeded CRFs
+// (they're parquet-backed and read-only). Bumps updated_at.
+type CrfPatch = Partial<
+  Pick<
+    CrfRecord,
+    | 'title'
+    | 'description'
+    | 'instructions'
+    | 'disease_scope'
+    | 'study_type'
+    | 'estimated_duration_minutes'
+    | 'collection_frequency'
+  >
+>;
+
+function updateCustomCrf(crfId: string, patch: CrfPatch): CrfRecord | null {
+  const idx = custom.value.findIndex((c) => c.id === crfId);
+  if (idx < 0) return null;
+  const c = custom.value[idx];
+  const next: CrfRecord = {
+    ...c,
+    ...patch,
+    updated_at: new Date().toISOString(),
+  };
+  const list = [...custom.value];
+  list[idx] = next;
+  custom.value = list;
+  return next;
+}
+
+function removeItemFromCrf(crfId: string, itemIdx: number): CrfRecord | null {
+  const idx = custom.value.findIndex((c) => c.id === crfId);
+  if (idx < 0) return null;
+  const c = custom.value[idx];
+  if (itemIdx < 0 || itemIdx >= c.items.length) return c;
+  const items = c.items.slice();
+  items.splice(itemIdx, 1);
+  const next: CrfRecord = { ...c, items, updated_at: new Date().toISOString() };
+  const list = [...custom.value];
+  list[idx] = next;
+  custom.value = list;
+  return next;
+}
+
+function reorderCrfItem(crfId: string, fromIdx: number, toIdx: number): CrfRecord | null {
+  const idx = custom.value.findIndex((c) => c.id === crfId);
+  if (idx < 0) return null;
+  const c = custom.value[idx];
+  if (
+    fromIdx < 0 ||
+    fromIdx >= c.items.length ||
+    toIdx < 0 ||
+    toIdx >= c.items.length ||
+    fromIdx === toIdx
+  ) {
+    return c;
+  }
+  const items = c.items.slice();
+  const [moved] = items.splice(fromIdx, 1);
+  items.splice(toIdx, 0, moved);
+  const next: CrfRecord = { ...c, items, updated_at: new Date().toISOString() };
+  const list = [...custom.value];
+  list[idx] = next;
+  custom.value = list;
+  return next;
+}
+
 export function useCrfStore() {
   return {
     loaded,
@@ -213,5 +281,8 @@ export function useCrfStore() {
     createCustomCrf,
     addItemToCrf,
     deleteCustomCrf,
+    updateCustomCrf,
+    removeItemFromCrf,
+    reorderCrfItem,
   };
 }

@@ -36,6 +36,19 @@ const permissibleValues = computed(() => {
 
 const referenceList = computed(() => splitSemi(props.cde?.refs));
 const sourceList = computed(() => splitSemi(props.cde?.cde_source));
+
+// CDEs that belong to a bundle should only ever enter a CRF as part of that
+// bundle — they're collected together by definition. So when this CDE is
+// bundled, we redirect the Add-to-CRF action to add the parent bundle, and
+// surface the change in the button label so the user understands why.
+const isBundled = computed(() => Boolean(props.cde?.bundle_name));
+const addKind = computed<'cde' | 'bundle'>(() => (isBundled.value ? 'bundle' : 'cde'));
+const addRef = computed<string | null>(() =>
+  isBundled.value ? (props.cde?.bundle_name ?? null) : (props.cde?.cde_name ?? null),
+);
+const addLabel = computed<string>(() =>
+  isBundled.value ? 'Add bundle to CRF' : 'Add to CRF',
+);
 </script>
 
 <template>
@@ -51,7 +64,28 @@ const sourceList = computed(() => splitSemi(props.cde?.cde_source));
       <header class="cde-detail__head">
         <div class="cde-detail__title-row">
           <h2>{{ cde.cde_name }}</h2>
-          <AddToCrfButton kind="cde" :ref="cde.cde_name" size="small" />
+          <el-tooltip
+            v-if="isBundled"
+            placement="bottom"
+            effect="dark"
+            content="This CDE is part of a bundle. CDEs in a bundle are always collected together, so the whole bundle gets added — not just this single CDE."
+          >
+            <span>
+              <AddToCrfButton
+                :kind="addKind"
+                :target-ref="addRef"
+                :label="addLabel"
+                size="small"
+              />
+            </span>
+          </el-tooltip>
+          <AddToCrfButton
+            v-else
+            :kind="addKind"
+            :target-ref="addRef"
+            :label="addLabel"
+            size="small"
+          />
         </div>
         <div class="cde-detail__meta">
           <span class="mono muted" v-if="cde.variable_name">{{ cde.variable_name }}</span>

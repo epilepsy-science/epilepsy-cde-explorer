@@ -98,7 +98,7 @@ const classificationSummary = computed(() => {
         </div>
         <div class="bundle-detail__title-row">
           <h1>{{ bundle.bundle_name }}</h1>
-          <AddToCrfButton kind="bundle" :ref="bundle.bundle_name" />
+          <AddToCrfButton kind="bundle" :target-ref="bundle.bundle_name" />
         </div>
         <div class="bundle-detail__meta">
           <el-tag size="small">{{ bundle.working_group }}</el-tag>

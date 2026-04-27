@@ -4,12 +4,21 @@ import { useRouter } from 'vue-router';
 import { ElMessageBox, ElNotification, type Action } from 'element-plus';
 import { useCrfStore } from '@/composables/useCrfStore';
 
+// NOTE: prop name is `targetRef`, not `ref`, because in Vue 3 templates the
+// `ref` attribute is reserved for template-ref bindings — `:ref="..."` on a
+// component registers a template ref on the parent, never gets passed
+// through as a prop. Using a different name is the only way to actually
+// receive the CDE/bundle key here.
 const props = defineProps<{
   kind: 'cde' | 'bundle';
   /** Canonical key — cde_name for CDEs, bundle_name for bundles. */
-  ref: string | null;
+  targetRef: string | null;
   /** Optional size override for the button. */
   size?: 'small' | 'default' | 'large';
+  /** Optional button label override. Default "Add to CRF". Use to clarify
+   *  intent when the parent is redirecting the action — e.g. when adding a
+   *  bundle from a CDE drawer because the CDE belongs to that bundle. */
+  label?: string;
 }>();
 
 const router = useRouter();
@@ -27,12 +36,12 @@ interface CrfOption {
 }
 
 const options = computed<CrfOption[]>(() => {
-  if (!props.ref) return [];
+  if (!props.targetRef) return [];
   return custom.value.map((c) => ({
     id: c.id,
     title: c.title,
     alreadyIn: c.items.some(
-      (it) => it.type === props.kind && it.ref === props.ref,
+      (it) => it.type === props.kind && it.ref === props.targetRef,
     ),
     itemCount: c.items.length,
   }));
@@ -74,13 +83,13 @@ function confirmAddDuplicate(crfTitle: string): Promise<boolean> {
 }
 
 async function handlePick(command: string) {
-  if (!props.ref) return;
+  if (!props.targetRef) return;
 
   if (command === '__new__') {
     const title = await promptForNewCrfTitle();
     if (!title) return;
     const crf = createCustomCrf({ title });
-    addItemToCrf(crf.id, { type: props.kind, ref: props.ref });
+    addItemToCrf(crf.id, { type: props.kind, ref: props.targetRef });
     notifyAdded(crf.id, crf.title);
     return;
   }
@@ -93,7 +102,7 @@ async function handlePick(command: string) {
     if (!ok) return;
   }
 
-  const updated = addItemToCrf(command, { type: props.kind, ref: props.ref });
+  const updated = addItemToCrf(command, { type: props.kind, ref: props.targetRef });
   if (updated) notifyAdded(updated.id, updated.title);
 }
 </script>
@@ -107,7 +116,7 @@ async function handlePick(command: string) {
   >
     <el-button :size="size ?? 'default'" type="primary" plain>
       <el-icon style="margin-right: 4px"><Plus /></el-icon>
-      Add to CRF
+      {{ label ?? 'Add to CRF' }}
       <el-icon style="margin-left: 4px"><ArrowDown /></el-icon>
     </el-button>
     <template #dropdown>

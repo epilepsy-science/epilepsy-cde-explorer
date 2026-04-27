@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue';
-import { useRoute } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useCrfStore } from '@/composables/useCrfStore';
 import { useDuckDB } from '@/composables/useDuckDB';
 import ClassificationPill from '@/components/ClassificationPill.vue';
@@ -12,11 +12,22 @@ import {
   type RedcapCdeInput,
   type RedcapBundleInput,
 } from '@/utils/redcapExport';
-import { ElMessage, ElNotification } from 'element-plus';
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
 
 const route = useRoute();
-const { ensureLoaded, getCrf, loaded } = useCrfStore();
+const router = useRouter();
+const {
+  ensureLoaded,
+  getCrf,
+  loaded,
+  updateCustomCrf,
+  removeItemFromCrf,
+  reorderCrfItem,
+  deleteCustomCrf,
+} = useCrfStore();
 const { query, status } = useDuckDB();
+
+const isCustom = computed(() => crf.value?.source === 'custom');
 
 const crf = ref<CrfRecord | null>(null);
 const loading = ref(true);
@@ -288,6 +299,94 @@ const canExport = computed(() => {
   return crf.value.items.some((it) => it.type === 'cde' || it.type === 'bundle');
 });
 
+// ── Custom CRF editing ──────────────────────────────────────────────────────
+// Inline-edit hooks: title and description switch into input mode on click,
+// commit on blur or Enter, cancel on Escape. Only wired for custom CRFs.
+const editingTitle = ref(false);
+const editingDesc = ref(false);
+const titleDraft = ref('');
+const descDraft = ref('');
+
+function startEditTitle() {
+  if (!isCustom.value || !crf.value) return;
+  titleDraft.value = crf.value.title;
+  editingTitle.value = true;
+}
+function commitTitle() {
+  if (!crf.value) return;
+  const t = titleDraft.value.trim();
+  if (t && t !== crf.value.title) {
+    const updated = updateCustomCrf(crf.value.id, { title: t });
+    if (updated) crf.value = updated;
+  }
+  editingTitle.value = false;
+}
+function cancelTitle() {
+  editingTitle.value = false;
+}
+function startEditDesc() {
+  if (!isCustom.value || !crf.value) return;
+  descDraft.value = crf.value.description ?? '';
+  editingDesc.value = true;
+}
+function commitDesc() {
+  if (!crf.value) return;
+  const d = descDraft.value.trim();
+  const next = d || null;
+  if (next !== (crf.value.description ?? null)) {
+    const updated = updateCustomCrf(crf.value.id, { description: next });
+    if (updated) crf.value = updated;
+  }
+  editingDesc.value = false;
+}
+function cancelDesc() {
+  editingDesc.value = false;
+}
+
+function moveItem(idx: number, delta: -1 | 1) {
+  if (!crf.value) return;
+  const updated = reorderCrfItem(crf.value.id, idx, idx + delta);
+  if (updated) crf.value = updated;
+}
+
+async function removeItem(idx: number) {
+  if (!crf.value) return;
+  const item = crf.value.items[idx];
+  const label =
+    item?.label ??
+    item?.ref ??
+    (item?.type === 'section' ? 'this section' : `this ${item?.type ?? 'item'}`);
+  try {
+    await ElMessageBox.confirm(
+      `Remove "${label}" from this CRF?`,
+      'Remove item',
+      { confirmButtonText: 'Remove', cancelButtonText: 'Cancel', type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+  const updated = removeItemFromCrf(crf.value.id, idx);
+  if (updated) crf.value = updated;
+}
+
+async function deleteEntireCrf() {
+  if (!crf.value) return;
+  try {
+    await ElMessageBox.confirm(
+      `Delete "${crf.value.title}"? This can't be undone.`,
+      'Delete CRF',
+      { confirmButtonText: 'Delete', cancelButtonText: 'Cancel', type: 'warning' },
+    );
+  } catch {
+    return;
+  }
+  const ok = deleteCustomCrf(crf.value.id);
+  if (ok) {
+    ElMessage.success('CRF deleted.');
+    router.push('/crfs');
+  }
+}
+
 function exportToRedcap() {
   if (!crf.value) return;
   // The resolved maps already match the util's input shapes — ResolvedCde
@@ -334,7 +433,28 @@ function exportToRedcap() {
             >
               {{ crf.source === 'seeded' ? 'Validated' : 'Custom' }}
             </span>
-            <h1>{{ crf.title }}</h1>
+            <!-- Inline-editable title for custom CRFs. Click to enter edit
+                 mode; blur/Enter commits, Escape cancels. Seeded CRFs render
+                 the title as a static h1. -->
+            <el-input
+              v-if="editingTitle"
+              v-model="titleDraft"
+              size="large"
+              autofocus
+              class="inline-edit-title"
+              @blur="commitTitle"
+              @keydown.enter.prevent="commitTitle"
+              @keydown.esc.prevent="cancelTitle"
+            />
+            <h1
+              v-else
+              class="crf-detail__title"
+              :class="{ 'crf-detail__title--editable': isCustom }"
+              :title="isCustom ? 'Click to rename' : ''"
+              @click="startEditTitle"
+            >
+              {{ crf.title }}
+            </h1>
           </div>
           <div class="crf-detail__actions">
             <el-button
@@ -355,9 +475,47 @@ function exportToRedcap() {
               <el-icon style="margin-right: 4px"><Download /></el-icon>
               Download REDCap CSV
             </el-button>
+            <el-button
+              v-if="isCustom"
+              type="danger"
+              plain
+              @click="deleteEntireCrf"
+            >
+              <el-icon style="margin-right: 4px"><Delete /></el-icon>
+              Delete
+            </el-button>
           </div>
         </div>
-        <p v-if="crf.description" class="crf-detail__desc">{{ crf.description }}</p>
+
+        <!-- Inline-editable description. For custom CRFs, an empty
+             description renders as a "click to add" placeholder so the user
+             can see it's editable. -->
+        <el-input
+          v-if="editingDesc"
+          v-model="descDraft"
+          type="textarea"
+          :rows="2"
+          autofocus
+          class="inline-edit-desc"
+          @blur="commitDesc"
+          @keydown.esc.prevent="cancelDesc"
+        />
+        <p
+          v-else-if="crf.description"
+          class="crf-detail__desc"
+          :class="{ 'crf-detail__desc--editable': isCustom }"
+          :title="isCustom ? 'Click to edit description' : ''"
+          @click="startEditDesc"
+        >
+          {{ crf.description }}
+        </p>
+        <p
+          v-else-if="isCustom"
+          class="crf-detail__desc crf-detail__desc--placeholder"
+          @click="startEditDesc"
+        >
+          + Add a description
+        </p>
       </header>
 
       <div class="crf-detail__body">
@@ -394,13 +552,88 @@ function exportToRedcap() {
           </section>
 
           <section class="crf-detail__items">
-            <h3>Form items</h3>
+            <div class="crf-detail__items-head">
+              <h3>Form items</h3>
+              <!-- Reorder hint — only relevant once a custom CRF has items.
+                   Subtle so seeded CRFs and the empty-state below stay
+                   visually clean. -->
+              <span
+                v-if="isCustom && renderedItems.length > 0"
+                class="crf-detail__items-hint subtle"
+              >
+                Hover an item to reorder (↑ ↓) or remove.
+              </span>
+            </div>
+
+            <!-- Empty state for a custom CRF with no items yet. Spells out
+                 the only way to add CDEs/Bundles today: the "Add to CRF"
+                 button while browsing those pages. Direct links provided
+                 so the user doesn't have to hunt for the right tab. -->
+            <div
+              v-if="isCustom && renderedItems.length === 0"
+              class="crf-detail__items-empty"
+            >
+              <h4>This CRF is empty</h4>
+              <p>
+                Add CDEs or Bundles by browsing the
+                <router-link to="/cdes">CDEs</router-link>
+                or
+                <router-link to="/explore?tab=treemap">Bundles</router-link>
+                pages, opening an item, and clicking
+                <strong>"Add to CRF"</strong> — your current CRFs appear in
+                the dropdown. Items land here in the order you add them; once
+                you have a few, hover any row to reorder or remove it.
+              </p>
+              <div class="crf-detail__items-empty-actions">
+                <router-link to="/cdes">
+                  <el-button type="primary">Browse CDEs</el-button>
+                </router-link>
+                <router-link to="/explore">
+                  <el-button>Browse Bundles</el-button>
+                </router-link>
+              </div>
+            </div>
+
             <div
               v-for="item in renderedItems"
               :key="item.idx"
               class="form-item"
-              :class="`form-item--${item.type}`"
+              :class="[
+                `form-item--${item.type}`,
+                { 'form-item--editable': isCustom },
+              ]"
             >
+              <!-- Reorder + remove controls — custom CRFs only. Stays out of
+                   the way of the actual form rendering below. -->
+              <div v-if="isCustom" class="form-item__controls">
+                <el-button
+                  size="small"
+                  text
+                  :disabled="item.idx === 0"
+                  :title="'Move up'"
+                  @click="moveItem(item.idx, -1)"
+                >
+                  <el-icon><ArrowUp /></el-icon>
+                </el-button>
+                <el-button
+                  size="small"
+                  text
+                  :disabled="item.idx === renderedItems.length - 1"
+                  :title="'Move down'"
+                  @click="moveItem(item.idx, 1)"
+                >
+                  <el-icon><ArrowDown /></el-icon>
+                </el-button>
+                <el-button
+                  size="small"
+                  text
+                  type="danger"
+                  :title="'Remove from CRF'"
+                  @click="removeItem(item.idx)"
+                >
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </div>
               <template v-if="item.type === 'section'">
                 <div class="section-break">
                   <div class="section-break__rule" />
@@ -679,6 +912,11 @@ function exportToRedcap() {
   &__value {
     font-size: 13px;
     color: $gray_6;
+    // Long values (notably the auto-slugged crf_name with a uniqueness
+    // suffix on collision) can blow past the meta panel's width — break
+    // them at any character so the panel stays inside its column.
+    overflow-wrap: anywhere;
+    word-break: break-word;
   }
 }
 
@@ -710,10 +948,166 @@ function exportToRedcap() {
   }
 }
 
+// Items section header — small reorder hint sits next to the H3 for
+// custom CRFs that already have items.
+.crf-detail__items-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+
+  h3 {
+    margin: 0;
+  }
+}
+.crf-detail__items-hint {
+  font-size: 12px;
+}
+
+// Empty-state card for a fresh custom CRF — friendly explanation of the
+// only path to add items today.
+.crf-detail__items-empty {
+  background: $gray_1;
+  border: 1px dashed $lineColor2;
+  border-radius: 4px;
+  padding: 1.5rem 1.5rem 1.75rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+
+  h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: $gray_6;
+  }
+
+  p {
+    margin: 0;
+    max-width: 540px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: $gray_5;
+
+    a {
+      color: $es-primary-color;
+      text-decoration: none;
+
+      &:hover {
+        text-decoration: underline;
+      }
+    }
+  }
+}
+.crf-detail__items-empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
 .form-item {
   & + & {
     margin-top: 10px;
   }
+
+  // Custom CRFs get a sibling controls column to the right of the field/
+  // bundle/section content — no absolute positioning, no overlap. Buttons
+  // dim by default and brighten on row hover so read-mode rendering stays
+  // clean.
+  &--editable {
+    display: flex;
+    align-items: stretch;
+    gap: 6px;
+
+    // Each item template (.field, .bundle-block, .section-break, .form-item__missing)
+    // becomes the flex content; controls sit beside it, not on top of it.
+    > .form-item__controls {
+      order: 2;
+      flex-shrink: 0;
+    }
+    > *:not(.form-item__controls) {
+      flex: 1;
+      min-width: 0;
+    }
+
+    &:hover .form-item__controls,
+    .form-item__controls:focus-within {
+      opacity: 1;
+    }
+  }
+
+  &__controls {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+    opacity: 0.35;
+    transition: opacity 80ms ease;
+    align-self: flex-start;
+    margin-left: 0;
+    // Reserve a fixed slot for the trio so consecutive rows line up at the
+    // same right edge regardless of which buttons are disabled.
+    width: 96px;
+    flex-shrink: 0;
+    justify-content: flex-end;
+
+    .el-button.is-text,
+    .el-button.is-text + .el-button.is-text {
+      padding: 0;
+      margin: 0;
+      min-height: 28px;
+      width: 28px;
+      height: 28px;
+    }
+  }
+}
+
+// Inline-edit affordances on title + description for custom CRFs.
+// Hover hint with a subtle dashed underline so reviewers can tell it's
+// clickable without showing an explicit "Edit" button.
+.crf-detail__title {
+  &--editable {
+    cursor: text;
+    border-bottom: 1px dashed transparent;
+    padding-bottom: 2px;
+
+    &:hover {
+      border-bottom-color: $gray_3;
+    }
+  }
+}
+
+.crf-detail__desc {
+  &--editable {
+    cursor: text;
+    border-bottom: 1px dashed transparent;
+    padding-bottom: 2px;
+    display: inline-block;
+
+    &:hover {
+      border-bottom-color: $gray_3;
+    }
+  }
+
+  &--placeholder {
+    cursor: text;
+    color: $gray_4;
+    font-style: italic;
+    padding: 2px 0;
+
+    &:hover {
+      color: $gray_5;
+    }
+  }
+}
+
+.inline-edit-title :deep(.el-input__inner),
+.inline-edit-title :deep(.el-input__wrapper) {
+  font-size: 28px;
+  font-weight: 700;
 }
 
 .section-break {

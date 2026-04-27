@@ -4,15 +4,21 @@ import { useRouter } from 'vue-router';
 import { useCrfStore } from '@/composables/useCrfStore';
 import { useStudyType, type StudyTypeFilter } from '@/composables/useStudyType';
 import type { CrfRecord } from '@/types';
+import CrfCreateDialog from '@/components/CrfCreateDialog.vue';
 
 const router = useRouter();
 const { crfs, ensureLoaded, loaded } = useCrfStore();
 const { filter: studyTypeFilter } = useStudyType();
 const search = ref('');
 const filter = ref<'all' | 'seeded' | 'custom'>('all');
+const createDialogOpen = ref(false);
 
 function setStudyType(v: StudyTypeFilter) {
   studyTypeFilter.value = v;
+}
+
+function onCrfCreated(id: string) {
+  router.push(`/crfs/${id}`);
 }
 
 onMounted(async () => {
@@ -86,6 +92,10 @@ const counts = computed(() => ({
         </p>
       </div>
       <div class="crfs-view__scope">
+        <el-button type="primary" @click="createDialogOpen = true">
+          <el-icon style="margin-right: 4px"><Plus /></el-icon>
+          New CRF
+        </el-button>
         <div class="lens-label subtle">Study type</div>
         <el-radio-group
           :model-value="studyTypeFilter"
@@ -98,6 +108,8 @@ const counts = computed(() => ({
         </el-radio-group>
       </div>
     </header>
+
+    <CrfCreateDialog v-model="createDialogOpen" @created="onCrfCreated" />
 
     <div class="crfs-view__filters">
       <el-input
@@ -116,6 +128,20 @@ const counts = computed(() => ({
     </div>
 
     <div v-if="!loaded" class="crfs-view__loading">Loading CRFs…</div>
+    <div
+      v-else-if="filtered.length === 0 && filter === 'custom' && counts.custom === 0"
+      class="crfs-view__empty crfs-view__empty--cta"
+    >
+      <h3>No custom CRFs yet</h3>
+      <p class="subtle">
+        Group CDEs into your own data-collection form. You can also add
+        items directly from a CDE or bundle's "Add to CRF" menu while browsing.
+      </p>
+      <el-button type="primary" @click="createDialogOpen = true">
+        <el-icon style="margin-right: 4px"><Plus /></el-icon>
+        Create your first CRF
+      </el-button>
+    </div>
     <div v-else-if="filtered.length === 0" class="crfs-view__empty subtle">
       No CRFs match.
     </div>
@@ -224,6 +250,33 @@ const counts = computed(() => ({
   &__empty {
     padding: 2rem;
     text-align: center;
+  }
+
+  // Bigger, friendlier empty state with a primary CTA — only shown on the
+  // Custom filter when the user has no custom CRFs yet.
+  &__empty--cta {
+    padding: 3rem 1.5rem;
+    background: $white;
+    border: 1px dashed $lineColor2;
+    border-radius: 4px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+
+    h3 {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+      color: $gray_6;
+    }
+
+    p {
+      max-width: 420px;
+      margin: 0 0 6px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
   }
 }
 

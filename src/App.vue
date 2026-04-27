@@ -23,8 +23,8 @@ const activeNav = computed(() => {
   <div id="cde-app">
     <header class="app-header">
       <div class="app-header__brand">
-        <span class="app-header__title">NT-PRECEDS</span>
-        <span class="app-header__subtitle">CDE Review Dashboard</span>
+        <span class="app-header__title">CDE Explorer</span>
+        <span class="app-header__subtitle">Neurotrauma &amp; Epilepsy</span>
       </div>
       <nav class="app-header__nav">
         <router-link to="/" :class="{ active: activeNav === 'home' }">Home</router-link>
