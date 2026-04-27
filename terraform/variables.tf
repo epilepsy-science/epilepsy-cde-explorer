@@ -61,3 +61,13 @@ variable "recaptcha_site_key" {
   default     = "6LeIAMwsAAAAAHC43_KP8uXnyLg8RU9cbt_9YoH7"
   description = "Google reCAPTCHA v3 site key for cde.epilepsy.science. Public; baked into the JS bundle."
 }
+
+# Public Google Analytics 4 measurement ID, baked into the dashboard bundle
+# at build time. Like the reCAPTCHA site key, this is safe to commit — GA4
+# treats the measurement ID as public and relies on the property's domain
+# allowlist for trust. Empty = analytics disabled (preview/staging deploys).
+variable "ga_measurement_id" {
+  type        = string
+  default     = "G-BNZD44SHPM"
+  description = "Google Analytics 4 measurement ID for cde.epilepsy.science. Set to empty string to disable analytics."
+}

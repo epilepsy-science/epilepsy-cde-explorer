@@ -30,6 +30,7 @@ resource "aws_amplify_app" "this" {
   # belongs in SSM + Lambda env (see terraform/api/), not here.
   environment_variables = {
     VITE_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
+    VITE_GA_MEASUREMENT_ID  = var.ga_measurement_id
   }
 }
 
