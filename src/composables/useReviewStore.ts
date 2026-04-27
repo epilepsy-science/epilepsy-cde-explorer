@@ -13,6 +13,7 @@
 import { computed, ref, watch } from 'vue';
 import { api, apiToken, setToken, unwrap } from '@/api/client';
 import { fetchDashboardConfig } from '@/api/dashboardConfig';
+import { trackEvent } from '@/api/analytics';
 import { useDuckDB } from '@/composables/useDuckDB';
 import type {
   DiseaseKey,
@@ -168,6 +169,17 @@ async function submitReview(partial: {
   } else {
     reviews.value = [...reviews.value, local];
   }
+
+  // Analytics: emit a non-PII shape — target type, disease, tier, whether
+  // this was an amend or a fresh review. Reviewer email, target_ref, and
+  // comment text are deliberately excluded.
+  trackEvent('review_submitted', {
+    target_type: local.target_type,
+    disease: local.disease,
+    classification: local.classification,
+    is_amend: i >= 0,
+  });
+
   return local;
 }
 

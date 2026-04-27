@@ -13,6 +13,7 @@ import {
   type RedcapBundleInput,
 } from '@/utils/redcapExport';
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
+import { trackEvent } from '@/api/analytics';
 
 const route = useRoute();
 const router = useRouter();
@@ -404,6 +405,17 @@ function exportToRedcap() {
     return;
   }
   downloadRedcapCsv(crf.value, csv);
+
+  // Analytics: emit only non-identifying shape data. CRF source
+  // (seeded vs custom) and field counts are useful aggregate signals;
+  // the CRF title is excluded because users type it freely on custom CRFs
+  // and could include PII.
+  trackEvent('redcap_exported', {
+    crf_source: crf.value.source,
+    field_count: fieldCount,
+    missing_refs_count: missingRefs.length,
+  });
+
   if (missingRefs.length) {
     ElNotification({
       type: 'warning',
