@@ -49,6 +49,11 @@ const routes: RouteRecordRaw[] = [
     name: 'review',
     component: () => import('./views/ReviewView.vue'),
   },
+  {
+    path: '/privacy',
+    name: 'privacy',
+    component: () => import('./views/PrivacyView.vue'),
+  },
 ];
 
 export const router = createRouter({

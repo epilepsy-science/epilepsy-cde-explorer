@@ -33,9 +33,7 @@ const year = new Date().getFullYear();
         <span class="app-footer__sep" aria-hidden="true">·</span>
         <a :href="REPO_URL" target="_blank" rel="noopener noreferrer">Source</a>
         <span class="app-footer__sep" aria-hidden="true">·</span>
-        <span class="app-footer__privacy">
-          Email is only used for review sign-in.
-        </span>
+        <router-link to="/privacy">Privacy</router-link>
       </nav>
 
       <!-- Copyright -->
