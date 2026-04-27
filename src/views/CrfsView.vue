@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCrfStore } from '@/composables/useCrfStore';
-import { useStudyType } from '@/composables/useStudyType';
+import { useStudyType, type StudyTypeFilter } from '@/composables/useStudyType';
 import type { CrfRecord } from '@/types';
 
 const router = useRouter();
@@ -10,6 +10,10 @@ const { crfs, ensureLoaded, loaded } = useCrfStore();
 const { filter: studyTypeFilter } = useStudyType();
 const search = ref('');
 const filter = ref<'all' | 'seeded' | 'custom'>('all');
+
+function setStudyType(v: StudyTypeFilter) {
+  studyTypeFilter.value = v;
+}
 
 onMounted(async () => {
   await ensureLoaded();
@@ -73,13 +77,25 @@ const counts = computed(() => ({
 <template>
   <div class="crfs-view">
     <header class="crfs-view__head page-header">
-      <div>
+      <div class="crfs-view__intro">
         <h1>Case Report Forms</h1>
         <p class="lede">
           Data-collection forms that group CDEs for a specific study event —
           intake, follow-up, outcome. Pick a ready-made CRF to adopt, or
           assemble your own from the CDE library.
         </p>
+      </div>
+      <div class="crfs-view__scope">
+        <div class="lens-label subtle">Study type</div>
+        <el-radio-group
+          :model-value="studyTypeFilter"
+          @update:model-value="(v: string | number | boolean | undefined) => setStudyType(v as StudyTypeFilter)"
+          size="default"
+        >
+          <el-radio-button value="all">All</el-radio-button>
+          <el-radio-button value="Clinical">Clinical</el-radio-button>
+          <el-radio-button value="Preclinical">Preclinical</el-radio-button>
+        </el-radio-group>
       </div>
     </header>
 
@@ -97,15 +113,6 @@ const counts = computed(() => ({
         <el-radio-button value="seeded">Validated ({{ counts.seeded }})</el-radio-button>
         <el-radio-button value="custom">Custom ({{ counts.custom }})</el-radio-button>
       </el-radio-group>
-      <el-select
-        v-model="studyTypeFilter"
-        placeholder="Study type"
-        class="filter-select"
-      >
-        <el-option label="All studies" value="all" />
-        <el-option label="Clinical" value="Clinical" />
-        <el-option label="Preclinical" value="Preclinical" />
-      </el-select>
     </div>
 
     <div v-if="!loaded" class="crfs-view__loading">Loading CRFs…</div>
@@ -167,8 +174,33 @@ const counts = computed(() => ({
   flex-direction: column;
   gap: 1rem;
 
-  &__head h1 {
-    margin-bottom: 0.25rem;
+  &__head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 2rem;
+    flex-wrap: wrap;
+
+    h1 {
+      margin-bottom: 0.25rem;
+    }
+  }
+
+  &__intro {
+    flex: 1 1 400px;
+  }
+
+  &__scope {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    align-items: flex-end;
+  }
+
+  .lens-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
   }
 
   &__filters {

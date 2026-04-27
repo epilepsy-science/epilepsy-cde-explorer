@@ -60,17 +60,45 @@ function setStudyType(v: StudyTypeFilter) {
       </div>
     </header>
 
-    <el-tabs v-model="tab" type="card" class="explore__tabs">
-      <el-tab-pane label="Overview" name="overview">
-        <ExploreOverviewTab v-if="tab === 'overview'" />
-      </el-tab-pane>
-      <el-tab-pane label="Tree" name="tree">
-        <ExploreTreeTab v-if="tab === 'tree'" />
-      </el-tab-pane>
-      <el-tab-pane label="Bundle treemap" name="treemap">
-        <ExploreTreemapTab v-if="tab === 'treemap'" />
-      </el-tab-pane>
-    </el-tabs>
+    <!-- View picker — three lenses on the same filtered CDE set. Classic
+         underline-tab styling: single bolded label per tab, active tab gets
+         a colored underline. Lighter chrome than the prior segmented control
+         while still reading unambiguously as tabs. -->
+    <nav class="view-tabs" role="tablist" aria-label="Explore views">
+      <button
+        class="view-tabs__tab"
+        :class="{ 'view-tabs__tab--active': tab === 'overview' }"
+        role="tab"
+        :aria-selected="tab === 'overview'"
+        @click="tab = 'overview'"
+      >
+        Overview
+      </button>
+      <button
+        class="view-tabs__tab"
+        :class="{ 'view-tabs__tab--active': tab === 'tree' }"
+        role="tab"
+        :aria-selected="tab === 'tree'"
+        @click="tab = 'tree'"
+      >
+        Tree
+      </button>
+      <button
+        class="view-tabs__tab"
+        :class="{ 'view-tabs__tab--active': tab === 'treemap' }"
+        role="tab"
+        :aria-selected="tab === 'treemap'"
+        @click="tab = 'treemap'"
+      >
+        Treemap
+      </button>
+    </nav>
+
+    <div class="explore__tab-body">
+      <ExploreOverviewTab v-if="tab === 'overview'" />
+      <ExploreTreeTab v-else-if="tab === 'tree'" />
+      <ExploreTreemapTab v-else-if="tab === 'treemap'" />
+    </div>
   </div>
 </template>
 
@@ -115,10 +143,42 @@ function setStudyType(v: StudyTypeFilter) {
     max-width: 680px;
   }
 
-  &__tabs {
-    :deep(.el-tabs__content) {
-      padding-top: 0.5rem;
+  &__tab-body {
+    padding-top: 0.25rem;
+  }
+}
+
+// Classic underline-tab strip. A horizontal rule under the row gives the
+// inactive tabs a baseline; the active tab paints a thicker green stripe
+// over its segment of that baseline. Single bold word per tab, no chrome
+// otherwise.
+.view-tabs {
+  display: flex;
+  gap: 1.5rem;
+  border-bottom: 1px solid $lineColor2;
+
+  &__tab {
+    background: transparent;
+    border: none;
+    padding: 8px 2px;
+    margin-bottom: -1px; // overlap the row's bottom border so active underline replaces it
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: $gray_4;
+    border-bottom: 2px solid transparent;
+    transition: color 80ms ease, border-color 80ms ease;
+
+    &:hover {
+      color: $gray_6;
+    }
+
+    &--active {
+      color: $es-primary-color;
+      border-bottom-color: $es-primary-color;
     }
   }
 }
+
 </style>

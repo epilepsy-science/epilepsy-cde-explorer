@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import { useRoute, RouterView } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
+import AppFooter from '@/components/AppFooter.vue';
 
 const route = useRoute();
 const { status, error } = useDuckDB();
@@ -33,11 +34,10 @@ const activeNav = computed(() => {
         <router-link to="/review" :class="{ active: activeNav === 'review' }">Review</router-link>
       </nav>
       <div class="app-header__status">
-        <el-tag v-if="status === 'ready'" type="success" size="small">DuckDB ready</el-tag>
-        <el-tag v-else-if="status === 'loading'" type="info" size="small">
+        <el-tag v-if="status === 'loading'" type="info" size="small">
           <el-icon class="is-loading"><Loading /></el-icon>&nbsp;Loading
         </el-tag>
-        <el-tag v-else-if="status === 'error'" type="danger" size="small">DuckDB error</el-tag>
+        <el-tag v-else-if="status === 'error'" type="danger" size="small">Data load error</el-tag>
       </div>
     </header>
 
@@ -47,10 +47,11 @@ const activeNav = computed(() => {
         type="error"
         :closable="false"
         show-icon
-        :title="'Failed to initialize DuckDB: ' + (error ?? 'unknown')"
+        :title="'Failed to load CDE data: ' + (error ?? 'unknown')"
       />
       <router-view v-else />
     </main>
+    <AppFooter />
   </div>
 </template>
 
