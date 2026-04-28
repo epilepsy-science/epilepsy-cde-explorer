@@ -520,6 +520,26 @@ function drawCdeField(
     });
     if (required) dropdown.enableRequired();
     c.y -= widgetHeight + 8;
+  } else if (isValueList && labels.length === 1) {
+    // Single-option Value List → checkbox. A radio group of one can only
+    // ever be set, never cleared, so the user can't undo a stray click.
+    // A checkbox toggles cleanly.
+    const checkbox = c.form.createCheckBox(fieldName);
+    const optY = c.y - RADIO_DOT;
+    checkbox.addToPage(c.page, {
+      x: MARGIN,
+      y: optY,
+      width: RADIO_DOT,
+      height: RADIO_DOT,
+    });
+    c.page.drawText(safe(labels[0]), {
+      x: MARGIN + RADIO_DOT + 6,
+      y: optY + 1,
+      size: BODY_SIZE,
+      font: c.font,
+    });
+    if (required) checkbox.enableRequired();
+    c.y -= widgetHeight + 8;
   } else if (isValueList) {
     // Short Value List → radio group.
     const radio = c.form.createRadioGroup(fieldName);
