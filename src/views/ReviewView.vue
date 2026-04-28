@@ -505,8 +505,9 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
         <header class="card__head">
           <h2>Sign in</h2>
           <p class="subtle">
-            Enter the email address you were invited under. We'll send a 6-digit
-            verification code; reviewers are kept on a curated allowlist.
+            Enter your email and we'll send you a 6-digit verification code.
+            Anyone with relevant expertise is welcome to review — no invitation
+            needed.
           </p>
         </header>
         <div class="auth-row">
