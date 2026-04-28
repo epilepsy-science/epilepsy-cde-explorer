@@ -5,6 +5,7 @@ import { useDuckDB } from '@/composables/useDuckDB';
 import {
   useReviewStore,
   type ReviewTarget,
+  type ReviewableSource,
 } from '@/composables/useReviewStore';
 import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
 import { ApiError, api, apiToken, setToken, unwrap } from '@/api/client';
@@ -20,6 +21,7 @@ const {
   logout,
   selectSessionTargets,
   coverageFor,
+  reviewableSources,
   myReviews,
 } = useReviewStore();
 const { lens } = useDiseaseLens();
@@ -173,25 +175,41 @@ async function saveProfile() {
 
 // ── Session launch ──────────────────────────────────────────────────────────
 
-// The reviewer can be qualified for multiple diseases (e.g. Epilepsy + PTE +
-// TBI). Each session targets ONE of them; a "Next disease" button cycles
-// through the list so a reviewer can do a few sessions per disease over time.
-const activeDiseaseIdx = ref(0);
+// The dashboard config drives which sources are currently open for review.
+// Each session targets ONE source; a "Next source" button cycles through
+// the list when more than one is active so a reviewer can do a few sessions
+// per source over time.
+const sources = ref<ReviewableSource[]>([]);
+const activeSourceIdx = ref(0);
 
-const activeDisease = computed<DiseaseKey | null>(() => {
-  const list = reviewer.value?.primary_diseases ?? [];
-  return list.length ? list[activeDiseaseIdx.value % list.length] : null;
+async function refreshSources() {
+  if (status.value !== 'ready') return;
+  sources.value = await reviewableSources();
+  if (activeSourceIdx.value >= visibleSources.value.length) activeSourceIdx.value = 0;
+}
+
+// Filter the (source, disease) pairs to the diseases the active reviewer
+// has indicated as their expertise. Visitors who aren't authed see every
+// pair (informational only). Admins see all.
+const visibleSources = computed<ReviewableSource[]>(() => {
+  if (!reviewer.value || reviewer.value.role === 'admin') return sources.value;
+  const expertise = new Set<string>(reviewer.value.primary_diseases ?? []);
+  if (!expertise.size) return [];
+  return sources.value.filter((s) => expertise.has(s.disease));
 });
 
-function nextDisease() {
-  const list = reviewer.value?.primary_diseases ?? [];
-  if (list.length < 2) return;
-  activeDiseaseIdx.value = (activeDiseaseIdx.value + 1) % list.length;
+const activeSource = computed<ReviewableSource | null>(() => {
+  if (!visibleSources.value.length) return null;
+  return visibleSources.value[activeSourceIdx.value % visibleSources.value.length];
+});
+
+function nextSource() {
+  if (visibleSources.value.length < 2) return;
+  activeSourceIdx.value =
+    (activeSourceIdx.value + 1) % visibleSources.value.length;
 }
 
 const sessionForm = ref({
-  disease: 'pte' as DiseaseKey,
-  studyType: null as StudyTypePref,
   limit: 20,
   includeReviewed: false,
 });
@@ -199,21 +217,14 @@ const sessionTargets = ref<ReviewTarget[] | null>(null);
 const loadingSession = ref(false);
 const completedSummary = ref<SessionSummary | null>(null);
 
-watch([reviewer, activeDisease], ([r, ad]) => {
-  if (r) {
-    sessionForm.value.studyType = r.primary_study_type;
-    if (ad) sessionForm.value.disease = ad;
-  }
-}, { immediate: true });
-
 async function startSession() {
-  if (!reviewer.value) return;
+  if (!reviewer.value || !activeSource.value) return;
   loadingSession.value = true;
   completedSummary.value = null;
   try {
     const targets = await selectSessionTargets({
-      disease: sessionForm.value.disease,
-      studyType: sessionForm.value.studyType,
+      source: activeSource.value.key,
+      disease: activeSource.value.disease,
       limit: sessionForm.value.limit,
       includeReviewed: sessionForm.value.includeReviewed,
     });
@@ -222,7 +233,7 @@ async function startSession() {
         type: 'info',
         title: 'Nothing to review',
         message:
-          'No remaining items match these filters for you. Try a different domain or disease.',
+          'No remaining items in this source match the current scope. Try the next source.',
       });
       return;
     }
@@ -251,23 +262,28 @@ interface CoverageBlock {
 const coverage = ref<CoverageBlock>({ reviewed: 0, total: 0 });
 
 async function refreshCoverage() {
-  if (!reviewer.value || status.value !== 'ready') return;
+  if (!reviewer.value || status.value !== 'ready' || !activeSource.value) {
+    coverage.value = { reviewed: 0, total: 0 };
+    return;
+  }
   coverage.value = await coverageFor(
-    sessionForm.value.disease,
-    sessionForm.value.studyType,
+    activeSource.value.key,
+    activeSource.value.disease,
   );
 }
 
 watch(
-  [
-    reviewer,
-    () => sessionForm.value.disease,
-    () => sessionForm.value.studyType,
-    status,
-    myReviews, // refresh when new reviews land
-  ],
+  [reviewer, activeSource, status, myReviews],
   () => {
     void refreshCoverage();
+  },
+  { immediate: true },
+);
+
+watch(
+  [reviewer, status],
+  () => {
+    void refreshSources();
   },
   { immediate: true },
 );
@@ -279,10 +295,20 @@ const coveragePct = computed(() =>
 );
 const remaining = computed(() => Math.max(0, coverage.value.total - coverage.value.reviewed));
 
-const diseaseLabel = computed(() =>
-  DISEASE_OPTIONS.find((o) => o.key === sessionForm.value.disease)?.longLabel
-    ?? sessionForm.value.disease,
+const sourceLabel = computed(() => activeSource.value?.label ?? 'No source under review');
+const activeDiseaseKey = computed<DiseaseKey>(
+  () => activeSource.value?.disease ?? 'agnostic',
 );
+const activeDiseaseLongLabel = computed(
+  () =>
+    DISEASE_OPTIONS.find((o) => o.key === activeDiseaseKey.value)?.longLabel ??
+    activeDiseaseKey.value,
+);
+
+function diseaseShortLabel(key: DiseaseKey | undefined): string {
+  if (!key) return '';
+  return DISEASE_OPTIONS.find((o) => o.key === key)?.label ?? String(key);
+}
 
 const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
 </script>
@@ -293,8 +319,9 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     <ReviewSession
       v-if="sessionTargets"
       :targets="sessionTargets"
-      :disease="sessionForm.disease"
-      :disease-label="diseaseLabel"
+      :disease="activeDiseaseKey"
+      :disease-label="activeDiseaseLongLabel"
+      :source-label="sourceLabel"
       @finish="onFinish"
       @cancel="onCancel"
     />
@@ -314,6 +341,164 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
           </p>
         </div>
       </header>
+
+      <!-- Reviewer identity strip — only shown when authed. Sits at the top
+           of the page (above the sources banner) so the user-context lives
+           where users expect it, instead of being awkwardly tucked between
+           the source picker and the session launcher below. -->
+      <section
+        v-if="authStep === 'authed' && reviewer"
+        class="reviewer-bar"
+      >
+        <div class="reviewer-bar__avatar" :title="reviewer.name">
+          {{ reviewer.name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '·' }}
+        </div>
+        <div class="reviewer-bar__identity">
+          <div class="reviewer-bar__name">
+            {{ reviewer.name }}
+            <a
+              v-if="reviewer.linkedin_url"
+              :href="reviewer.linkedin_url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="reviewer-bar__linkedin"
+              :title="reviewer.linkedin_url"
+            >LinkedIn ↗</a>
+          </div>
+          <div class="reviewer-bar__scope subtle">
+            <span
+              v-for="dk in reviewer?.primary_diseases ?? []"
+              :key="dk"
+              class="reviewer-bar__disease-chip"
+            >{{ DISEASE_OPTIONS.find((o) => o.key === dk)?.label ?? dk }}</span>
+            <span class="reviewer-bar__sep">·</span>
+            <span>{{ reviewer?.primary_study_type ?? 'Clinical & preclinical' }}</span>
+          </div>
+        </div>
+        <div class="reviewer-bar__actions">
+          <el-button text size="small" @click="startEditing">Edit profile</el-button>
+          <el-button text size="small" @click="logout">Sign out</el-button>
+        </div>
+      </section>
+
+      <!-- Progress stat band — at-a-glance for the active source. Sits
+           between the reviewer identity strip and the source picker so the
+           page reads top-down: who you are → how you're doing → what's
+           available → what to do next. -->
+      <section
+        v-if="authStep === 'authed' && reviewer && activeSource"
+        class="progress-band"
+      >
+        <div class="progress-card progress-card--lead">
+          <div class="progress-card__value">{{ coveragePct }}%</div>
+          <div class="progress-card__label">Reviewed in scope</div>
+          <div class="progress-card__meta">{{ sourceLabel }}</div>
+        </div>
+        <div class="progress-card">
+          <div class="progress-card__value">{{ coverage.reviewed.toLocaleString() }}</div>
+          <div class="progress-card__label">Items you've reviewed</div>
+          <div class="progress-card__meta muted">across all sessions</div>
+        </div>
+        <div class="progress-card">
+          <div class="progress-card__value">{{ remaining.toLocaleString() }}</div>
+          <div class="progress-card__label">Items remaining</div>
+          <div class="progress-card__meta muted">in current scope</div>
+        </div>
+        <div class="progress-card progress-card--bar">
+          <div class="progress-card__label">Coverage</div>
+          <div class="coverage-bar">
+            <div class="coverage-bar__fill" :style="{ width: coveragePct + '%' }" />
+          </div>
+          <div class="progress-card__meta muted">
+            {{ coverage.reviewed }} / {{ coverage.total }}
+          </div>
+        </div>
+      </section>
+
+      <!-- "Currently under review" banner — visible at every auth step
+           (signed-out, code-entry, profile-setup, reviewer-landing) so
+           visitors can see which datasets are open for review before they
+           commit to signing in. The chip is interactive only for
+           authenticated reviewers (it sets the active source for the
+           session launcher); pre-auth it's purely informational. -->
+      <section v-if="sources.length" class="sources-banner">
+        <div class="sources-banner__head">
+          <h2 v-if="authStep === 'authed' && reviewer">
+            Available for your expertise
+          </h2>
+          <h2 v-else>Currently under review</h2>
+          <p class="subtle">
+            <template v-if="authStep === 'authed' && reviewer && visibleSources.length">
+              These (dataset · disease) pairs match the disease expertise
+              you set in your profile. Pick one to start a session —
+              sessions are scoped to a single disease so tier decisions
+              don't blur across them.
+            </template>
+            <template v-else-if="authStep === 'authed' && reviewer && !visibleSources.length">
+              Nothing matches your disease expertise right now. Update your
+              profile to add another disease, or check back as new sources
+              open up.
+            </template>
+            <template v-else>
+              These datasets are open for community review, scoped per
+              disease. <strong>Sign in below</strong> to start a session —
+              we'll filter to the diseases you're an expert in.
+            </template>
+          </p>
+        </div>
+        <div class="sources-banner__grid">
+          <!-- Authenticated reviewer view: only chips matching their
+               primary_diseases, fully interactive. -->
+          <template v-if="authStep === 'authed' && reviewer">
+            <button
+              v-for="(s, i) in visibleSources"
+              :key="s.id"
+              type="button"
+              class="source-chip"
+              :class="[
+                { 'source-chip--active': i === activeSourceIdx },
+                `source-chip--disease-${s.disease}`,
+              ]"
+              @click="activeSourceIdx = i"
+            >
+              <div class="source-chip__label">{{ s.label }}</div>
+              <div class="source-chip__badges">
+                <span
+                  class="source-chip__disease"
+                  :class="`disease-pill disease-pill--${s.disease}`"
+                >{{ diseaseShortLabel(s.disease) }}</span>
+                <span v-if="s.study_type" class="source-chip__study">{{ s.study_type }}</span>
+              </div>
+              <div class="source-chip__count">
+                {{ s.target_count }} item{{ s.target_count === 1 ? '' : 's' }}
+              </div>
+            </button>
+          </template>
+
+          <!-- Pre-auth informational view: every (source, disease) pair,
+               read-only, so visitors can see the full reviewable scope. -->
+          <template v-else>
+            <div
+              v-for="s in sources"
+              :key="s.id"
+              class="source-chip source-chip--readonly"
+              :class="`source-chip--disease-${s.disease}`"
+            >
+              <div class="source-chip__label">{{ s.label }}</div>
+              <div class="source-chip__badges">
+                <span
+                  class="source-chip__disease"
+                  :class="`disease-pill disease-pill--${s.disease}`"
+                >{{ diseaseShortLabel(s.disease) }}</span>
+                <span v-if="s.study_type" class="source-chip__study">{{ s.study_type }}</span>
+              </div>
+              <div class="source-chip__count">
+                {{ s.target_count }} item{{ s.target_count === 1 ? '' : 's' }}
+              </div>
+            </div>
+          </template>
+        </div>
+      </section>
 
       <!-- Auth gate (only the Review page requires it; CDE/CRF browse stays public) -->
       <section v-if="authStep === 'email'" class="card card--setup">
@@ -460,78 +645,18 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
 
       <!-- Reviewer landing -->
       <template v-else-if="authStep === 'authed' && reviewer">
-        <!-- Reviewer identity + scope chip -->
-        <section class="reviewer-bar">
-          <div class="reviewer-bar__avatar" :title="reviewer.name">
-            {{ reviewer.name.split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase()).join('') || '·' }}
-          </div>
-          <div class="reviewer-bar__identity">
-            <div class="reviewer-bar__name">
-              {{ reviewer.name }}
-              <a
-                v-if="reviewer.linkedin_url"
-                :href="reviewer.linkedin_url"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="reviewer-bar__linkedin"
-                :title="reviewer.linkedin_url"
-              >LinkedIn ↗</a>
-            </div>
-            <div class="reviewer-bar__scope subtle">
-              <span
-                v-for="dk in reviewer?.primary_diseases ?? []"
-                :key="dk"
-                class="reviewer-bar__disease-chip"
-              >{{ DISEASE_OPTIONS.find((o) => o.key === dk)?.label ?? dk }}</span>
-              <span class="reviewer-bar__sep">·</span>
-              <span>{{ reviewer?.primary_study_type ?? 'Clinical & preclinical' }}</span>
-            </div>
-          </div>
-          <div class="reviewer-bar__actions">
-            <el-button text size="small" @click="startEditing">Edit profile</el-button>
-            <el-button text size="small" @click="logout">Sign out</el-button>
-          </div>
-        </section>
 
-        <!-- Progress stat band — at-a-glance for the reviewer's current scope -->
-        <section class="progress-band">
-          <div class="progress-card progress-card--lead">
-            <div class="progress-card__value">{{ coveragePct }}%</div>
-            <div class="progress-card__label">Reviewed in scope</div>
-            <div class="progress-card__meta">{{ diseaseLabel }} · {{ sessionForm.studyType ?? 'Clinical & preclinical' }}</div>
-          </div>
-          <div class="progress-card">
-            <div class="progress-card__value">{{ coverage.reviewed.toLocaleString() }}</div>
-            <div class="progress-card__label">Items you've reviewed</div>
-            <div class="progress-card__meta muted">across all sessions</div>
-          </div>
-          <div class="progress-card">
-            <div class="progress-card__value">{{ remaining.toLocaleString() }}</div>
-            <div class="progress-card__label">Items remaining</div>
-            <div class="progress-card__meta muted">in current scope</div>
-          </div>
-          <div class="progress-card progress-card--bar">
-            <div class="progress-card__label">Coverage</div>
-            <div class="coverage-bar">
-              <div class="coverage-bar__fill" :style="{ width: coveragePct + '%' }" />
-            </div>
-            <div class="progress-card__meta muted">
-              {{ coverage.reviewed }} / {{ coverage.total }}
-            </div>
-          </div>
-        </section>
 
         <!-- Session launcher card -->
         <section class="card">
           <header class="card__head">
             <h2>Start a review session</h2>
             <p class="subtle">
-              Each session pulls up to 20 items scoped to the
-              <strong>disease and domain</strong> you set in your profile —
-              we only ask you to weigh in where your expertise applies.
-              Sessions are kept short on purpose so they fit between other
-              tasks; come back as often as you like and we'll pick up where
-              you left off, skipping items you've already classified.
+              Each session pulls up to 20 items from the
+              <strong>{{ sourceLabel }}</strong> dataset you've selected
+              above. Sessions are kept short on purpose so they fit between
+              other tasks; come back as often as you like and we'll pick up
+              where you left off, skipping items you've already classified.
             </p>
             <p class="subtle subtle--keys">
               Each item is a Bundle (reviewed as a unit) or a standalone CDE.
@@ -544,22 +669,32 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
                they're about to review so they can confirm before starting. -->
           <div class="scope-preview">
             <div class="scope-preview__row">
-              <span class="scope-preview__label">Disease</span>
-              <span class="scope-preview__value scope-preview__value--accent">{{ diseaseLabel }}</span>
+              <span class="scope-preview__label">Source</span>
+              <span class="scope-preview__value scope-preview__value--accent">
+                {{ sourceLabel }}
+              </span>
+              <span
+                v-if="activeSource"
+                class="disease-pill"
+                :class="`disease-pill--${activeSource.disease}`"
+              >
+                {{ activeDiseaseLongLabel }}
+              </span>
               <el-button
-                v-if="(reviewer?.primary_diseases?.length ?? 0) > 1"
+                v-if="visibleSources.length > 1"
                 text
                 size="small"
                 class="scope-preview__switch"
-                @click="nextDisease"
+                @click="nextSource"
               >
-                Next disease →
+                Next →
               </el-button>
             </div>
-            <div class="scope-preview__row">
-              <span class="scope-preview__label">Study context</span>
+            <div v-if="activeSource" class="scope-preview__row">
+              <span class="scope-preview__label">Context</span>
               <span class="scope-preview__value">
-                {{ sessionForm.studyType ?? 'Clinical & preclinical' }}
+                {{ activeSource.study_type ?? 'Mixed' }}
+                · Reviewing for {{ activeDiseaseLongLabel }} tier
               </span>
             </div>
             <div class="scope-preview__row">
@@ -832,7 +967,7 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     padding: 1px 8px;
     background: $gray_1;
     border: 1px solid $lineColor2;
-    border-radius: 10px;
+    border-radius: 2px;
     font-size: 11px;
     font-weight: 600;
     color: $gray_6;
@@ -842,6 +977,129 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     color: $gray_3;
     margin: 0 2px;
   }
+}
+
+// "Currently under review" banner — one tappable chip per source. Active
+// chip gets a colored border + raised affordance so the reviewer always
+// knows which dataset a "Start session" click will pull from.
+.sources-banner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 16px;
+  background: $white;
+  border: 1px solid $lineColor2;
+  border-left: 3px solid $es-primary-color;
+  border-radius: 4px;
+
+  &__head {
+    h2 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 8px;
+  }
+}
+
+.source-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: $gray_0;
+  border: 1px solid $lineColor2;
+  border-left: 3px solid transparent;
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: transform 80ms ease, box-shadow 80ms ease, border-color 80ms ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.04);
+    border-color: $gray_3;
+  }
+
+  &--active {
+    background: $white;
+    border-color: $es-primary-color;
+    border-left-color: $es-primary-color;
+    box-shadow: 0 2px 6px rgba(31, 82, 143, 0.12);
+  }
+
+  &--readonly {
+    cursor: default;
+    opacity: 0.85;
+
+    &:hover {
+      transform: none;
+      box-shadow: none;
+      border-color: $lineColor2;
+    }
+  }
+
+  &__label {
+    font-size: 13px;
+    font-weight: 600;
+    color: $gray_6;
+  }
+
+  &__badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  &__study {
+    font-size: 10px;
+    color: $gray_5;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-weight: 600;
+  }
+
+  &__count {
+    font-size: 11px;
+    color: $gray_5;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+
+  &__disease {
+    flex: 0 0 auto;
+  }
+}
+
+// Disease badge palette — small color-coded pill that matches the PDF
+// accent palette. Used on source chips and the active-source meta strip.
+.disease-pill {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+
+  &--pte         { background: #fde2ee; color: #be185d; }
+  &--tbi         { background: #fdebd5; color: #b45309; }
+  &--sci         { background: #d8f5f3; color: #0e7d7b; }
+  &--neurotrauma { background: #e3e8ee; color: #475569; }
+  &--epilepsy    { background: #efe5ff; color: #6d28d9; }
+  &--agnostic    { background: #e8eef7; color: #1f528f; }
 }
 
 // Progress stat band — small, scannable. Same hierarchy as Home stats.

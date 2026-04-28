@@ -5,7 +5,8 @@ import {
   useReviewStore,
   type ReviewTarget,
 } from '@/composables/useReviewStore';
-import { isActiveTier, splitPipe, REVIEW_FLAGS } from '@/types';
+import { isActiveTier, REVIEW_FLAGS } from '@/types';
+import CrfFieldPreview from './CrfFieldPreview.vue';
 import type {
   DiseaseKey,
   ReviewClassification,
@@ -16,7 +17,10 @@ import type {
 const props = defineProps<{
   targets: ReviewTarget[];
   disease: DiseaseKey;
+  /** Long-form disease label, e.g. "Post-Traumatic Epilepsy". */
   diseaseLabel: string;
+  /** Source label this session pulls from, e.g. "PTE Clinical CDEs". */
+  sourceLabel: string;
 }>();
 
 const emit = defineEmits<{
@@ -75,6 +79,8 @@ interface ResolvedCdeDetail {
   unit_of_measure: string | null;
   pv_labels: string | null;
   pv_codes: string | null;
+  min_value: number | null;
+  max_value: number | null;
   classification_agnostic: string | null;
   classification_neurotrauma: string | null;
   classification_tbi: string | null;
@@ -107,6 +113,7 @@ async function resolveCurrent() {
       const rows = await query<ResolvedCdeDetail>(
         `SELECT cde_name, variable_name, cde_data_type, cde_definition,
                 preferred_question_text, unit_of_measure, pv_labels, pv_codes,
+                min_value, max_value,
                 classification_agnostic, classification_neurotrauma,
                 classification_tbi, classification_pte, classification_sci,
                 cde_domain, bundle_id, bundle_name
@@ -129,6 +136,7 @@ async function resolveCurrent() {
       const cdeRows = await query<ResolvedCdeDetail>(
         `SELECT cde_name, variable_name, cde_data_type, cde_definition,
                 preferred_question_text, unit_of_measure, pv_labels, pv_codes,
+                min_value, max_value,
                 classification_agnostic, classification_neurotrauma,
                 classification_tbi, classification_pte, classification_sci,
                 cde_domain, bundle_id, bundle_name
@@ -177,13 +185,6 @@ const seededBaseline = computed<string | null>(() => {
   }
   return null;
 });
-
-// Permissible values for a single CDE.
-function pvsForCde(c: ResolvedCdeDetail) {
-  const labels = splitPipe(c.pv_labels);
-  const codes = splitPipe(c.pv_codes);
-  return labels.map((label, i) => ({ label, code: codes[i] ?? null }));
-}
 
 // ── Actions ─────────────────────────────────────────────────────────────────
 function selectTier(tier: ReviewClassification) {
@@ -276,17 +277,6 @@ const progressPct = computed(
          to live in its own panel; folded into a single subtle lede here so the
          item card below becomes the unambiguous focal point. -->
     <header class="session-top">
-      <div class="session-top__scope">
-        <span class="session-top__eyebrow">Reviewing for</span>
-        <span class="session-top__disease">{{ diseaseLabel }}</span>
-        <el-tooltip
-          placement="top"
-          effect="dark"
-          :content="`Pick the tier that best reflects how essential this is for ${diseaseLabel} studies. Bundles are reviewed as a unit — all CDEs inside are governed by your tier. Add a comment if your pick differs from the current NT-PRECEDS classification.`"
-        >
-          <el-icon class="session-top__help"><InfoFilled /></el-icon>
-        </el-tooltip>
-      </div>
       <div class="session-top__progress">
         <div class="progress-bar">
           <div class="progress-bar__fill" :style="{ width: progressPct + '%' }" />
@@ -296,93 +286,77 @@ const progressPct = computed(
       <el-button text @click="emit('cancel')">End session</el-button>
     </header>
 
-    <!-- THE thing being reviewed — visually elevated so the eye can't miss it. -->
-    <article class="item-card" v-loading="resolvedLoading">
-      <div class="item-card__topline">
-        <span class="item-card__eyebrow">
-          <span
-            class="item-card__kind"
-            :class="current.type === 'bundle' ? 'item-card__kind--bundle' : 'item-card__kind--cde'"
-          >{{ current.type === 'bundle' ? 'Bundle' : 'Standalone CDE' }}</span>
-          <span class="item-card__sep">·</span>
-          Reviewing item {{ idx + 1 }} of {{ targets.length }}
+    <!-- Metadata strip — supporting context only. Visually subordinate to
+         the sheet below so the reviewer's eye lands on the form, not on the
+         labels around it. -->
+    <div class="review-meta">
+      <span
+        class="review-meta__kind"
+        :class="current.type === 'bundle' ? 'review-meta__kind--bundle' : 'review-meta__kind--cde'"
+      >{{ current.type === 'bundle' ? 'Bundle' : 'Standalone CDE' }}</span>
+      <span class="disease-pill" :class="`disease-pill--${disease}`">
+        {{ diseaseLabel }}
+      </span>
+      <template v-if="current.domain">
+        <span class="review-meta__sep">·</span>
+        <span class="review-meta__cell">{{ current.domain }}</span>
+      </template>
+      <template v-if="seededBaseline">
+        <span class="review-meta__sep">·</span>
+        <span class="review-meta__cell">
+          Current tier: <strong>{{ seededBaseline }}</strong>
         </span>
-        <span v-if="previousClassification" class="item-card__prior">
+      </template>
+      <template v-if="previousClassification">
+        <span class="review-meta__sep">·</span>
+        <span class="review-meta__cell review-meta__cell--prior">
           Your prior: <strong>{{ previousClassification }}</strong>
         </span>
+      </template>
+    </div>
+
+    <!-- Paper sheet — the form preview itself, styled like a printed CRF
+         page so the reviewer immediately reads it as "this is what a data
+         collector sees" rather than just another metadata block. -->
+    <article class="crf-sheet" v-loading="resolvedLoading">
+      <header class="crf-sheet__header">
+        <div class="crf-sheet__header-rule" />
+        <h2 class="crf-sheet__title">{{ sourceLabel }} — Review CRF</h2>
+        <div class="crf-sheet__sublabel">
+          Reviewing for <strong>{{ diseaseLabel }}</strong> ·
+          {{ current.type === 'bundle' ? 'Bundle' : 'Standalone CDE' }} preview
+        </div>
+      </header>
+
+      <div class="crf-sheet__body">
+        <!-- CDE: single field. The CDE's own name surfaces as the field
+             label inside CrfFieldPreview (preferred_question_text ||
+             cde_name), so we don't restate it as a section heading. -->
+        <CrfFieldPreview v-if="resolvedCde" :cde="resolvedCde" />
+
+        <!-- Bundle: bundle name + optional description as a section
+             heading, then each member CDE rendered as its own form field. -->
+        <template v-else-if="resolvedBundle">
+          <div class="crf-sheet__section-head">
+            <h3 class="crf-sheet__section-title">{{ resolvedBundle.bundle_name }}</h3>
+            <p v-if="resolvedBundle.description" class="crf-sheet__intro">
+              {{ resolvedBundle.description }}
+            </p>
+          </div>
+          <div class="crf-sheet__bundle">
+            <CrfFieldPreview
+              v-for="c in resolvedBundle.cdes"
+              :key="c.cde_name"
+              :cde="c"
+              compact
+            />
+          </div>
+        </template>
       </div>
 
-      <h2 class="item-card__title">{{ current.title }}</h2>
-      <div v-if="current.domain" class="item-card__domain">{{ current.domain }}</div>
-
-      <!-- CDE body -->
-      <section v-if="resolvedCde" class="card-body">
-        <div class="field-preview">
-          <div class="field-preview__label">
-            {{ resolvedCde.preferred_question_text || resolvedCde.cde_name }}
-            <span class="field-preview__type">{{ resolvedCde.cde_data_type }}</span>
-          </div>
-          <div v-if="resolvedCde.cde_definition" class="field-preview__def">
-            {{ resolvedCde.cde_definition }}
-          </div>
-          <div
-            v-if="pvsForCde(resolvedCde).length"
-            class="field-preview__pvs"
-          >
-            <span class="field-preview__pvs-label">Values:</span>
-            <span
-              v-for="pv in pvsForCde(resolvedCde)"
-              :key="pv.label"
-              class="pv-pill"
-            >
-              <span v-if="pv.code" class="pv-pill__code">{{ pv.code }}</span>
-              {{ pv.label }}
-            </span>
-          </div>
-          <div v-if="resolvedCde.unit_of_measure" class="field-preview__unit muted">
-            Unit: {{ resolvedCde.unit_of_measure }}
-          </div>
-        </div>
-      </section>
-
-      <!-- Bundle body -->
-      <section v-else-if="resolvedBundle" class="card-body">
-        <p v-if="resolvedBundle.description" class="card-desc">
-          {{ resolvedBundle.description }}
-        </p>
-        <ul class="bundle-cdes">
-          <li v-for="c in resolvedBundle.cdes" :key="c.cde_name" class="bundle-cde">
-            <div class="bundle-cde__row">
-              <span class="bundle-cde__name">
-                {{ c.preferred_question_text || c.cde_name }}
-              </span>
-              <span class="bundle-cde__type muted">{{ c.cde_data_type }}</span>
-              <span v-if="c.unit_of_measure" class="muted">
-                {{ c.unit_of_measure }}
-              </span>
-            </div>
-            <div
-              v-if="pvsForCde(c).length"
-              class="bundle-cde__pvs"
-            >
-              <span
-                v-for="pv in pvsForCde(c)"
-                :key="pv.label"
-                class="pv-pill pv-pill--compact"
-              >
-                <span v-if="pv.code" class="pv-pill__code">{{ pv.code }}</span>
-                {{ pv.label }}
-              </span>
-            </div>
-          </li>
-        </ul>
-      </section>
-
-      <!-- Context — current published tier (if any) -->
-      <section class="card-context" v-if="seededBaseline">
-        <span class="card-context__label">Current NT-PRECEDS tier for {{ diseaseLabel }}:</span>
-        <span class="card-context__value">{{ seededBaseline }}</span>
-      </section>
+      <footer class="crf-sheet__footer">
+        <span class="crf-sheet__watermark">PREVIEW · not for data entry</span>
+      </footer>
     </article>
 
     <!-- Decision panel: the reviewer's action. Visually quieter than the item
@@ -490,50 +464,20 @@ const progressPct = computed(
 .session-top {
   display: flex;
   align-items: center;
-  gap: 1.25rem;
-
-  &__scope {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    flex-shrink: 0;
-    padding-left: 12px;
-    border-left: 3px solid $es-primary-color;
-  }
-
-  &__eyebrow {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: $gray_4;
-    font-weight: 600;
-  }
-
-  &__disease {
-    font-size: 17px;
-    font-weight: 700;
-    color: $gray_6;
-    letter-spacing: -0.1px;
-  }
-
-  &__help {
-    font-size: 14px;
-    color: $gray_4;
-    cursor: help;
-    align-self: center;
-  }
+  gap: 12px;
 
   &__progress {
     flex: 1;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 10px;
   }
 
   &__counter {
+    flex: 0 0 auto;
     font-size: 11px;
     color: $gray_5;
-    text-align: right;
+    white-space: nowrap;
   }
 }
 
@@ -550,47 +494,47 @@ const progressPct = computed(
   }
 }
 
-// Item card — the hero of the screen. The only surface that carries the green
-// accent and a soft drop shadow, so the eye lands here without ambiguity.
-.item-card {
-  background: $white;
-  border: 1px solid $lineColor2;
-  border-left: 3px solid $es-primary-color;
+// Disease badge palette — small color-coded pill indicating the disease
+// the current session is scoped to. Same colors used elsewhere on /review.
+.disease-pill {
+  display: inline-block;
+  padding: 1px 7px;
   border-radius: 2px;
-  padding: 1.5rem 1.75rem 1.75rem;
-  margin: 0.5rem 0;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+
+  &--pte         { background: #fde2ee; color: #be185d; }
+  &--tbi         { background: #fdebd5; color: #b45309; }
+  &--sci         { background: #d8f5f3; color: #0e7d7b; }
+  &--neurotrauma { background: #e3e8ee; color: #475569; }
+  &--epilepsy    { background: #efe5ff; color: #6d28d9; }
+  &--agnostic    { background: #e8eef7; color: #1f528f; }
+}
+
+// Metadata strip — supporting context only. Compact, low-contrast row that
+// sits above the paper sheet so the reviewer reads it as labels, not as
+// content. No background, no border — just text in a row.
+.review-meta {
   display: flex;
-  flex-direction: column;
-  gap: 1rem;
-
-  &__topline {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    flex-wrap: wrap;
-  }
-
-  &__eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-    color: $gray_4;
-    font-weight: 600;
-  }
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: $gray_5;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
 
   &__sep {
     color: $gray_3;
   }
 
   &__kind {
-    padding: 2px 7px;
+    padding: 2px 8px;
     border-radius: 2px;
     font-size: 10px;
+    font-weight: 700;
     letter-spacing: 0.5px;
 
     &--bundle {
@@ -603,190 +547,129 @@ const progressPct = computed(
     }
   }
 
-  // Prior classification surfaces here as a small pill — about the *item*, not
-  // the action, so it lives near the title rather than buried in the panel.
-  &__prior {
+  &__progress {
+    font-weight: 600;
+    color: $gray_5;
+  }
+
+  &__cell {
+    color: $gray_5;
+    text-transform: none;
+    letter-spacing: 0;
     font-size: 12px;
-    color: #7a4a05;
-    background: #fef7e6;
-    border: 1px solid #f1d68a;
-    padding: 3px 10px;
-    border-radius: 12px;
 
     strong {
-      font-weight: 700;
-      color: #5a3603;
+      color: $gray_6;
+      font-weight: 600;
     }
+
+    &--prior {
+      padding: 1px 8px;
+      background: #fef7e6;
+      border: 1px solid #f1d68a;
+      border-radius: 2px;
+      color: #7a4a05;
+
+      strong { color: #5a3603; }
+    }
+  }
+}
+
+// Paper sheet — styled like a printed CRF page. White surface, soft drop
+// shadow, faux header bar with a colored hairline rule. This is the focal
+// element of the page; everything else is subordinate.
+.crf-sheet {
+  background: $white;
+  border: 1px solid $lineColor2;
+  border-radius: 4px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+  margin: 0.5rem 0 1rem;
+  overflow: hidden;
+
+  &__header {
+    padding: 22px 28px 18px;
+    border-bottom: 1px solid $lineColor2;
+    background: linear-gradient(180deg, #fafbfc 0%, $white 100%);
+    position: relative;
+  }
+
+  &__header-rule {
+    position: absolute;
+    top: 0;
+    left: 28px;
+    width: 80px;
+    height: 3px;
+    background: $es-primary-color;
   }
 
   &__title {
-    margin: 0;
-    font-size: 24px;
+    margin: 4px 0 4px;
+    font-size: 22px;
     font-weight: 700;
     color: $gray_6;
-    line-height: 1.25;
     letter-spacing: -0.2px;
+    line-height: 1.3;
   }
 
-  &__domain {
+  &__sublabel {
     font-size: 11px;
-    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
+    letter-spacing: 0.5px;
     color: $gray_4;
-    margin-top: -2px;
-  }
-}
-
-.card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.card-desc {
-  margin: 0;
-  font-size: 13px;
-  color: $gray_5;
-  line-height: 1.5;
-}
-
-.field-preview {
-  border: 1px solid $lineColor2;
-  border-left: 2px solid $es-primary-color;
-  border-radius: 2px;
-  padding: 12px 14px;
-  background: $gray_1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  &__label {
     font-weight: 600;
-    font-size: 15px;
-    color: $gray_6;
+  }
+
+  &__body {
+    padding: 22px 28px 18px;
     display: flex;
-    align-items: baseline;
-    gap: 10px;
-    justify-content: space-between;
+    flex-direction: column;
+    gap: 14px;
   }
 
-  &__type {
-    font-size: 11px;
-    font-weight: 600;
+  &__section-head {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid $lineColor2;
+  }
+
+  &__section-title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
-    color: $gray_4;
+    letter-spacing: 0.6px;
+    color: $gray_6;
   }
 
-  &__def {
+  &__intro {
+    margin: 0;
     font-size: 13px;
     color: $gray_5;
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
-  &__pvs {
+  &__bundle {
     display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    align-items: center;
-  }
-
-  &__pvs-label {
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.4px;
-    color: $gray_4;
-    font-weight: 600;
-    margin-right: 4px;
-  }
-
-  &__unit {
-    font-size: 11px;
-  }
-}
-
-.bundle-cdes {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.bundle-cde {
-  padding: 6px 10px;
-  border-left: 1px solid $lineColor2;
-  background: $gray_1;
-  border-radius: 2px;
-
-  &__row {
-    display: flex;
-    align-items: baseline;
+    flex-direction: column;
     gap: 10px;
-    font-size: 13px;
   }
 
-  &__name {
-    font-weight: 500;
-    color: $gray_6;
-  }
-
-  &__type {
-    font-size: 11px;
-  }
-
-  &__pvs {
+  &__footer {
     display: flex;
-    flex-wrap: wrap;
-    gap: 3px;
-    margin-top: 2px;
+    justify-content: flex-end;
+    padding: 10px 28px 14px;
+    border-top: 1px dashed $lineColor2;
+    background: #fafbfc;
   }
-}
 
-.pv-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  background: $white;
-  border: 1px solid $lineColor2;
-  border-radius: 2px;
-  font-size: 11px;
-  color: $gray_6;
-
-  &--compact {
-    padding: 0 5px;
+  &__watermark {
     font-size: 10px;
-  }
-
-  &__code {
-    font-family: 'SF Mono', Menlo, Consolas, monospace;
-    font-size: 10px;
-    color: $es-primary-color;
-    font-weight: 600;
-  }
-}
-
-.card-context {
-  font-size: 12px;
-  color: $gray_5;
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
-
-  &__label {
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    font-weight: 600;
-    font-size: 10px;
+    letter-spacing: 1px;
     color: $gray_4;
-  }
-
-  &__value {
-    color: $gray_6;
-    font-weight: 500;
+    font-weight: 600;
   }
 }
 
@@ -937,7 +820,7 @@ const progressPct = computed(
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 500;
-  border-radius: 12px;
+  border-radius: 2px;
   cursor: pointer;
   transition: background 80ms ease, border-color 80ms ease, color 80ms ease;
 

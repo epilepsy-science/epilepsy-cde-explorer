@@ -209,22 +209,40 @@ export interface ReviewTarget {
 }
 
 export interface SessionFilter {
+  /** source_key — the dataset under review (e.g. 'pte-clinical'). */
+  source: string;
+  /** Disease the session is scoped to — same CDE can be Core for one and
+   *  Supplemental for another, so a reviewer always works one at a time. */
   disease: DiseaseKey;
-  /** null = both clinical and preclinical. */
-  studyType: 'Clinical' | 'Preclinical' | null;
   limit: number;
-  /** When true, include items this reviewer has already reviewed for the
-   *  chosen disease so they can amend their classification. */
+  /** When true, include items this reviewer has already reviewed so they
+   *  can amend their classification. */
   includeReviewed?: boolean;
 }
 
-function diseaseColumn(d: DiseaseKey): string {
-  return `disease_${d}`;
+/** One reviewable unit: a (source, disease) pair from the review_scope.
+ *  A source whose CDEs span multiple diseases produces one entry per
+ *  disease so a session is always scoped to a single classification axis. */
+export interface ReviewableSource {
+  /** Composite key for v-for / equality checks — `${source_key}::${disease}`. */
+  id: string;
+  /** Source key (source_labels.source_key, e.g. 'pte-clinical'). */
+  key: string;
+  /** Pretty source label for display ("PTE Clinical CDEs"). */
+  label: string;
+  /** Study type — Clinical or Preclinical, or null when the source mixes. */
+  study_type: 'Clinical' | 'Preclinical' | null;
+  /** Disease this entry's session reviews against. */
+  disease: DiseaseKey;
+  /** Total CDEs + Bundles in scope from this source flagged for `disease`. */
+  target_count: number;
 }
 
-function studyTypeClause(studyType: SessionFilter['studyType']): string {
-  if (!studyType) return '';
-  return `AND ',' || COALESCE(study_types, '') || ',' LIKE '%,${studyType},%'`;
+function originKeysClause(sourceKey: string): string {
+  // origin_keys is a comma-joined list. Pad both ends with commas so we
+  // match whole keys, not prefixes (e.g. 'pte' inside 'pte-clinical').
+  const safe = sourceKey.replace(/'/g, "''");
+  return `',' || COALESCE(origin_keys, '') || ',' LIKE '%,${safe},%'`;
 }
 
 async function selectSessionTargets(
@@ -232,32 +250,30 @@ async function selectSessionTargets(
 ): Promise<ReviewTarget[]> {
   if (!reviewer.value) return [];
   const { query } = useDuckDB();
-  const diseaseCol = diseaseColumn(filter.disease);
-  const stClause = studyTypeClause(filter.studyType);
+  const sourceClause = originKeysClause(filter.source);
+  const diseaseClause = `disease_${filter.disease} = 'Y'`;
 
   // Bundled CDEs are reviewed as a bundle (bundles travel together by
   // definition — same rule the CDE drawer enforces for "Add to CRF").
-  // Filter on bundle_name (not bundle_id) so a CDE with a bundle_name but
-  // a missing bundle_id row in the data still gets routed through its
-  // bundle, not surfaced as a standalone target.
   const bundleRows = await query<{ bundle_name: string; cde_domain: string | null }>(
     `SELECT bundle_name, any_value(cde_domain) AS cde_domain
      FROM cde_full
-     WHERE ${diseaseCol} = 'Y'
+     WHERE ${sourceClause}
+       AND ${diseaseClause}
        AND bundle_name IS NOT NULL
-       ${stClause}
      GROUP BY bundle_name`,
   );
   const cdeRows = await query<{ cde_name: string; cde_domain: string | null }>(
     `SELECT cde_name, cde_domain
      FROM cde_full
-     WHERE ${diseaseCol} = 'Y'
-       AND bundle_name IS NULL
-       ${stClause}`,
+     WHERE ${sourceClause}
+       AND ${diseaseClause}
+       AND bundle_name IS NULL`,
   );
 
-  // Local cache covers what /v1/reviews/me returned at ensureLoaded time;
-  // submitReview keeps it fresh as new reviews land.
+  // Already-reviewed for THIS disease — a CDE that the reviewer classified
+  // for PTE should still surface when they're reviewing for TBI, since the
+  // tier might differ. Restrict the dedup to the active disease.
   const reviewed = new Set(
     reviews.value
       .filter((r) => r.disease === filter.disease)
@@ -311,6 +327,111 @@ async function selectSessionTargets(
   return kept;
 }
 
+/** Enumerate (source × disease) review buckets currently in scope. A
+ *  source whose CDEs span multiple diseases produces one entry per
+ *  disease so a session is always scoped to a single classification axis. */
+async function reviewableSources(): Promise<ReviewableSource[]> {
+  const { query, status } = useDuckDB();
+  if (status.value !== 'ready') return [];
+  const config = await fetchDashboardConfig();
+  const scope = config.review_scope;
+
+  // Union of in-scope CDE/bundle rows with their owning source(s) and ALL
+  // disease flags (not just the dominant one). all_open => no filter.
+  const cdeNames = scope.cdes;
+  const bundleNames = scope.bundles;
+  let where = '';
+  let params: unknown[] = [];
+  if (!scope.all_open) {
+    const cdePh = cdeNames.map(() => '?').join(',');
+    const bunPh = bundleNames.map(() => '?').join(',');
+    const clauses: string[] = [];
+    if (cdeNames.length) clauses.push(`cde_name IN (${cdePh})`);
+    if (bundleNames.length) clauses.push(`bundle_name IN (${bunPh})`);
+    if (!clauses.length) return [];
+    where = `WHERE ${clauses.join(' OR ')}`;
+    params = [...cdeNames, ...bundleNames];
+  }
+
+  const rows = await query<{
+    cde_name: string;
+    bundle_name: string | null;
+    origin_keys: string | null;
+    disease_pte: string | null;
+    disease_epilepsy: string | null;
+    disease_tbi: string | null;
+    disease_sci: string | null;
+    disease_neurotrauma: string | null;
+    disease_agnostic: string | null;
+  }>(
+    `SELECT cde_name, bundle_name, origin_keys,
+       disease_pte, disease_epilepsy, disease_tbi,
+       disease_sci, disease_neurotrauma, disease_agnostic
+     FROM cde_full
+     ${where}`,
+    params,
+  );
+
+  // Aggregate by (source, disease): a CDE flagged for both PTE and TBI in
+  // a source counts toward both buckets. Bundles dedup via bundle_name.
+  const buckets = new Map<string, { source: string; disease: DiseaseKey; targets: Set<string> }>();
+  const diseaseFlags: Array<{ key: DiseaseKey; col: keyof typeof rows[number] }> = [
+    { key: 'pte', col: 'disease_pte' },
+    { key: 'epilepsy', col: 'disease_epilepsy' },
+    { key: 'tbi', col: 'disease_tbi' },
+    { key: 'sci', col: 'disease_sci' },
+    { key: 'neurotrauma', col: 'disease_neurotrauma' },
+    { key: 'agnostic', col: 'disease_agnostic' },
+  ];
+  for (const r of rows) {
+    const targetKey = r.bundle_name
+      ? `bundle:${r.bundle_name}`
+      : `cde:${r.cde_name}`;
+    const sourceKeys = (r.origin_keys ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+    for (const sourceKey of sourceKeys) {
+      for (const { key: disease, col } of diseaseFlags) {
+        if (r[col] !== 'Y') continue;
+        const id = `${sourceKey}::${disease}`;
+        let b = buckets.get(id);
+        if (!b) {
+          b = { source: sourceKey, disease, targets: new Set() };
+          buckets.set(id, b);
+        }
+        b.targets.add(targetKey);
+      }
+    }
+  }
+
+  const labels = await query<{
+    source_key: string;
+    label: string;
+    study_type: string | null;
+  }>(`SELECT source_key, label, study_type FROM source_labels`);
+  const labelMap = new Map(labels.map((l) => [l.source_key, l]));
+
+  const out: ReviewableSource[] = [];
+  for (const [id, b] of buckets) {
+    const meta = labelMap.get(b.source);
+    const studyType =
+      meta?.study_type === 'Clinical' || meta?.study_type === 'Preclinical'
+        ? meta.study_type
+        : null;
+    out.push({
+      id,
+      key: b.source,
+      label: meta?.label ?? b.source,
+      study_type: studyType,
+      disease: b.disease,
+      target_count: b.targets.size,
+    });
+  }
+  // Stable order: source label, then disease key.
+  out.sort((a, b) =>
+    a.label.localeCompare(b.label) || a.disease.localeCompare(b.disease),
+  );
+  return out;
+}
+
 function shuffle<T>(arr: T[]): T[] {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -326,27 +447,46 @@ interface Coverage {
   total: number;
 }
 
-async function coverageFor(
-  disease: DiseaseKey,
-  studyType: 'Clinical' | 'Preclinical' | null,
-): Promise<Coverage> {
+async function coverageFor(source: string, disease: DiseaseKey): Promise<Coverage> {
   if (!reviewer.value) return { reviewed: 0, total: 0 };
   const { query } = useDuckDB();
-  const diseaseCol = diseaseColumn(disease);
-  const stClause = studyTypeClause(studyType);
+  const sourceClause = originKeysClause(source);
+  const diseaseClause = `disease_${disease} = 'Y'`;
 
-  const bundleTotal = await query<{ n: number }>(
-    `SELECT COUNT(DISTINCT bundle_name) AS n
-     FROM cde_full
-     WHERE ${diseaseCol} = 'Y' AND bundle_id IS NOT NULL ${stClause}`,
+  const [cdeRows, bundleRows] = await Promise.all([
+    query<{ cde_name: string }>(
+      `SELECT cde_name FROM cde_full
+       WHERE ${sourceClause} AND ${diseaseClause} AND bundle_name IS NULL`,
+    ),
+    query<{ bundle_name: string }>(
+      `SELECT DISTINCT bundle_name FROM cde_full
+       WHERE ${sourceClause} AND ${diseaseClause} AND bundle_name IS NOT NULL`,
+    ),
+  ]);
+
+  const config = await fetchDashboardConfig();
+  const scope = config.review_scope;
+  let candidateCdes = cdeRows.map((r) => r.cde_name);
+  let candidateBundles = bundleRows.map((r) => r.bundle_name);
+  if (!scope.all_open) {
+    const cdeSet = new Set(scope.cdes);
+    const bunSet = new Set(scope.bundles);
+    candidateCdes = candidateCdes.filter((n) => cdeSet.has(n));
+    candidateBundles = candidateBundles.filter((n) => bunSet.has(n));
+  }
+  const total = candidateCdes.length + candidateBundles.length;
+
+  // Reviewed for THIS disease only — same CDE reviewed for a different
+  // disease still counts as "to do" here.
+  const reviewedRefs = new Set(
+    reviews.value
+      .filter((r) => r.disease === disease)
+      .map((r) => `${r.target_type}:${r.target_ref}`),
   );
-  const cdeTotal = await query<{ n: number }>(
-    `SELECT COUNT(*) AS n
-     FROM cde_full
-     WHERE ${diseaseCol} = 'Y' AND bundle_id IS NULL ${stClause}`,
-  );
-  const total = Number(bundleTotal[0]?.n ?? 0) + Number(cdeTotal[0]?.n ?? 0);
-  const reviewed = reviews.value.filter((r) => r.disease === disease).length;
+  let reviewed = 0;
+  for (const c of candidateCdes) if (reviewedRefs.has(`cde:${c}`)) reviewed++;
+  for (const b of candidateBundles) if (reviewedRefs.has(`bundle:${b}`)) reviewed++;
+
   return { reviewed, total };
 }
 
@@ -427,5 +567,6 @@ export function useReviewStore() {
 
     selectSessionTargets,
     coverageFor,
+    reviewableSources,
   };
 }

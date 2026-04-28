@@ -13,13 +13,18 @@ import type { paths } from './generated/schema';
 
 const TOKEN_KEY = 'cde-review.api-token';
 
-const baseUrl = (
-  import.meta.env.VITE_API_BASE_URL ||
-  // Fall back to api.<dashboard-host> in prod-like setups; use localhost in dev.
-  (typeof window !== 'undefined' && window.location.hostname === 'cde.epilepsy.science'
-    ? 'https://api.cde.epilepsy.science'
-    : 'http://localhost:8080')
-);
+// VITE_API_BASE_URL is honored when *defined* in .env, even if it's an
+// empty string — empty means "use relative URLs", which lets the Vite dev
+// proxy intercept and forward to the prod API without tripping CORS.
+// When the env var is unset entirely, fall back to host-derived defaults.
+const baseUrl = (() => {
+  const env = import.meta.env.VITE_API_BASE_URL;
+  if (env !== undefined) return env;
+  if (typeof window !== 'undefined' && window.location.hostname === 'cde.epilepsy.science') {
+    return 'https://api.cde.epilepsy.science';
+  }
+  return 'http://localhost:8080';
+})();
 
 export const apiToken = ref<string | null>(readToken());
 

@@ -291,6 +291,7 @@ export type DiseaseKey =
   | 'tbi'
   | 'sci'
   | 'neurotrauma'
+  | 'epilepsy'
   | 'agnostic';
 
 export interface Reviewer {
