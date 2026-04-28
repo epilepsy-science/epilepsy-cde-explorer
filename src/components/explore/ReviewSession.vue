@@ -505,7 +505,7 @@ const progressPct = computed(
   letter-spacing: 0.4px;
   text-transform: uppercase;
 
-  &--pte         { background: #fde2ee; color: #be185d; }
+  &--pte         { background: #e0e7ff; color: #3730a3; }
   &--tbi         { background: #fdebd5; color: #b45309; }
   &--sci         { background: #d8f5f3; color: #0e7d7b; }
   &--neurotrauma { background: #e3e8ee; color: #475569; }

@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cde.epilepsy.science/schemas/cde_classification.schema.json",
+  "title": "CDE Classification",
+  "description": "Per-disease tier assignment for a CDE plus the domain/subdomain/category taxonomy and any disease-specific instructions. Joined to cde via CLASSIFIES relationships.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "variable_name",
+    "disease_agnostic",
+    "disease_neurotrauma",
+    "disease_tbi",
+    "disease_pte",
+    "disease_sci",
+    "classification_agnostic",
+    "classification_neurotrauma",
+    "classification_tbi",
+    "classification_pte",
+    "classification_sci"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "variable_name": {
+      "type": "string"
+    },
+    "version_name": {
+      "type": "string"
+    },
+    "version_date": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    },
+    "additional_instructions": {
+      "type": "string"
+    },
+    "disease_epilepsy": {
+      "type": "string"
+    },
+    "classification_epilepsy": {
+      "type": "string"
+    },
+    "disease_agnostic": {
+      "type": "string"
+    },
+    "classification_agnostic": {
+      "type": "string"
+    },
+    "disease_neurotrauma": {
+      "type": "string"
+    },
+    "classification_neurotrauma": {
+      "type": "string"
+    },
+    "disease_tbi": {
+      "type": "string"
+    },
+    "classification_tbi": {
+      "type": "string"
+    },
+    "disease_pte": {
+      "type": "string"
+    },
+    "classification_pte": {
+      "type": "string"
+    },
+    "disease_sci": {
+      "type": "string"
+    },
+    "classification_sci": {
+      "type": "string"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "subdomain": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    }
+  },
+  "x-source": "cde-review-dashboard parquet introspection",
+  "x-generated-at": "2026-04-28T16:08:55.935Z"
+}

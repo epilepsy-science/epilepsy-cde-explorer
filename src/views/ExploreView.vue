@@ -80,12 +80,23 @@ function setStudyType(v: StudyTypeFilter) {
       <div class="explore__intro">
         <h1>Explore CDEs</h1>
         <p class="lede">
-          Are you planning a new study in
-          <strong>{{ option(lens).longLabel }}</strong>?
-          Use these views to find the Common Data Elements recommended for this
-          research focus, review their classification tiers, and assemble them
-          into a Case Report Form. Switch the <strong>Research focus</strong>
-          on the right to pivot every view to a different disease.
+          <template v-if="lens === 'all'">
+            Browse the full library of Common Data Elements across every
+            research focus. Use these views to find the CDEs you need,
+            review their classification tiers, and assemble them into a
+            Case Report Form. Pick a specific
+            <strong>Research focus</strong> on the right to scope every
+            view to a single disease.
+          </template>
+          <template v-else>
+            Are you planning a new study in
+            <strong>{{ option(lens).longLabel }}</strong>?
+            Use these views to find the Common Data Elements recommended for
+            this research focus, review their classification tiers, and
+            assemble them into a Case Report Form. Switch the
+            <strong>Research focus</strong> on the right to pivot every
+            view to a different disease.
+          </template>
         </p>
       </div>
       <div class="explore__lens">

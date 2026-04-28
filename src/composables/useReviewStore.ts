@@ -232,6 +232,10 @@ export interface ReviewableSource {
   label: string;
   /** Study type — Clinical or Preclinical, or null when the source mixes. */
   study_type: 'Clinical' | 'Preclinical' | null;
+  /** 'sample' = illustrative training dataset; reviewers should know
+   *  their feedback won't roll up to a published curation. Defaults to
+   *  'production' when the source doesn't declare a kind. */
+  kind: 'sample' | 'production';
   /** Disease this entry's session reviews against. */
   disease: DiseaseKey;
   /** Total CDEs + Bundles in scope from this source flagged for `disease`. */
@@ -406,7 +410,8 @@ async function reviewableSources(): Promise<ReviewableSource[]> {
     source_key: string;
     label: string;
     study_type: string | null;
-  }>(`SELECT source_key, label, study_type FROM source_labels`);
+    kind: string | null;
+  }>(`SELECT source_key, label, study_type, kind FROM source_labels`);
   const labelMap = new Map(labels.map((l) => [l.source_key, l]));
 
   const out: ReviewableSource[] = [];
@@ -416,11 +421,13 @@ async function reviewableSources(): Promise<ReviewableSource[]> {
       meta?.study_type === 'Clinical' || meta?.study_type === 'Preclinical'
         ? meta.study_type
         : null;
+    const kind = meta?.kind === 'sample' ? 'sample' : 'production';
     out.push({
       id,
       key: b.source,
       label: meta?.label ?? b.source,
       study_type: studyType,
+      kind,
       disease: b.disease,
       target_count: b.targets.size,
     });

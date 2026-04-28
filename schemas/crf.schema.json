@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cde.epilepsy.science/schemas/crf.schema.json",
+  "title": "Case Report Form (CRF)",
+  "description": "A data-collection form composed of section headers, individual CDEs, and bundles in a specific order. The dashboard renders this list as a fillable PDF / REDCap dictionary / JSON Schema for downstream data capture.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "crf_name",
+    "title",
+    "version",
+    "items"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "crf_name": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "instructions": {
+      "type": "string"
+    },
+    "external_url": {
+      "type": "string"
+    },
+    "version": {
+      "type": "string"
+    },
+    "disease_scope": {
+      "type": "string"
+    },
+    "estimated_duration_minutes": {
+      "type": "string"
+    },
+    "collection_frequency": {
+      "type": "string"
+    },
+    "items": {},
+    "registration_status": {
+      "type": "string"
+    }
+  },
+  "x-source": "cde-review-dashboard parquet introspection",
+  "x-generated-at": "2026-04-28T16:08:55.939Z"
+}

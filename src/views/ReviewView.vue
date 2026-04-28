@@ -381,6 +381,87 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
         </div>
       </section>
 
+      <!-- Profile form — sits right under the reviewer-bar so editing
+           feels in-place rather than detached. Renders for both initial
+           setup (no reviewer yet) and "Edit profile" on an existing
+           reviewer. Outside the v-if/v-else-if chain on purpose so the
+           rest of the authed page (sources, progress, launcher) keeps
+           rendering during edits. -->
+      <section
+        v-if="authStep === 'authed' && (!reviewer || editing)"
+        class="card card--setup"
+      >
+        <header class="card__head">
+          <h2>{{ reviewer ? 'Edit your reviewer profile' : 'Get started' }}</h2>
+          <p class="subtle">
+            {{ reviewer
+              ? 'Update your focus or display name.'
+              : 'Tell us who you are and what you focus on. Reviews are stored locally for now; a token-based login is planned for the production rollout.' }}
+          </p>
+        </header>
+
+        <div class="form-grid">
+          <label>
+            <span class="form-grid__label">Your name</span>
+            <el-input v-model="form.name" placeholder="e.g. Dr. Jane Doe" />
+          </label>
+          <label class="form-grid__span-2">
+            <span class="form-grid__label">
+              LinkedIn profile
+              <span class="form-grid__label-hint">— optional</span>
+            </span>
+            <el-input
+              v-model="form.linkedin_url"
+              placeholder="https://www.linkedin.com/in/your-handle"
+              maxlength="500"
+              type="url"
+            />
+          </label>
+          <label class="form-grid__span-2">
+            <span class="form-grid__label">
+              Disease expertise
+              <span class="form-grid__label-hint">— select all that apply</span>
+            </span>
+            <el-select
+              v-model="form.primary_diseases"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              placeholder="Select all that apply (e.g. Epilepsy, PTE, TBI)"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="d in selectableDiseases"
+                :key="d.key"
+                :value="d.key"
+                :label="d.longLabel"
+              />
+            </el-select>
+            <span class="form-grid__hint subtle">
+              Sessions cycle through these one at a time — pick everything you're qualified to weigh in on.
+            </span>
+          </label>
+          <label>
+            <span class="form-grid__label">Study context</span>
+            <el-select
+              v-model="form.primary_study_type"
+              placeholder="Both clinical & preclinical"
+              clearable
+              style="width: 100%"
+            >
+              <el-option label="Clinical" value="Clinical" />
+              <el-option label="Preclinical" value="Preclinical" />
+            </el-select>
+          </label>
+        </div>
+        <div class="form-grid__actions">
+          <el-button v-if="editing && reviewer" @click="editing = false">Cancel</el-button>
+          <el-button type="primary" size="large" @click="saveProfile">
+            {{ reviewer ? 'Save changes' : 'Save profile' }}
+          </el-button>
+        </div>
+      </section>
+
       <!-- Progress stat band — at-a-glance for the active source. Sits
            between the reviewer identity strip and the source picker so the
            page reads top-down: who you are → how you're doing → what's
@@ -457,6 +538,7 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
               class="source-chip"
               :class="[
                 { 'source-chip--active': i === activeSourceIdx },
+                { 'source-chip--sample': s.kind === 'sample' },
                 `source-chip--disease-${s.disease}`,
               ]"
               @click="activeSourceIdx = i"
@@ -467,7 +549,12 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
                   class="source-chip__disease"
                   :class="`disease-pill disease-pill--${s.disease}`"
                 >{{ diseaseShortLabel(s.disease) }}</span>
-                <span v-if="s.study_type" class="source-chip__study">{{ s.study_type }}</span>
+                <span v-if="s.kind === 'sample'" class="source-chip__sample-tag">Sample</span>
+                <span
+                  v-if="s.study_type"
+                  class="source-chip__study"
+                  :data-study="s.study_type"
+                >{{ s.study_type }}</span>
               </div>
               <div class="source-chip__count">
                 {{ s.target_count }} item{{ s.target_count === 1 ? '' : 's' }}
@@ -482,7 +569,10 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
               v-for="s in sources"
               :key="s.id"
               class="source-chip source-chip--readonly"
-              :class="`source-chip--disease-${s.disease}`"
+              :class="[
+                { 'source-chip--sample': s.kind === 'sample' },
+                `source-chip--disease-${s.disease}`,
+              ]"
             >
               <div class="source-chip__label">{{ s.label }}</div>
               <div class="source-chip__badges">
@@ -490,7 +580,12 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
                   class="source-chip__disease"
                   :class="`disease-pill disease-pill--${s.disease}`"
                 >{{ diseaseShortLabel(s.disease) }}</span>
-                <span v-if="s.study_type" class="source-chip__study">{{ s.study_type }}</span>
+                <span v-if="s.kind === 'sample'" class="source-chip__sample-tag">Sample</span>
+                <span
+                  v-if="s.study_type"
+                  class="source-chip__study"
+                  :data-study="s.study_type"
+                >{{ s.study_type }}</span>
               </div>
               <div class="source-chip__count">
                 {{ s.target_count }} item{{ s.target_count === 1 ? '' : 's' }}
@@ -565,85 +660,6 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
         </div>
       </section>
 
-      <!-- Empty state: no reviewer profile yet OR editing (only after auth) -->
-      <section
-        v-else-if="authStep === 'authed' && (!reviewer || editing)"
-        class="card card--setup"
-      >
-        <header class="card__head">
-          <h2>{{ reviewer ? 'Edit your reviewer profile' : 'Get started' }}</h2>
-          <p class="subtle">
-            {{ reviewer
-              ? 'Update your focus or display name.'
-              : 'Tell us who you are and what you focus on. Reviews are stored locally for now; a token-based login is planned for the production rollout.' }}
-          </p>
-        </header>
-
-        <!-- Two rows × three columns. Row 1: name + LinkedIn (span-2 because
-             the URL is long). Row 2: disease expertise (span-2) + study
-             context (1 col) so the related "scope" controls share a line. -->
-        <div class="form-grid">
-          <label>
-            <span class="form-grid__label">Your name</span>
-            <el-input v-model="form.name" placeholder="e.g. Dr. Jane Doe" />
-          </label>
-          <label class="form-grid__span-2">
-            <span class="form-grid__label">
-              LinkedIn profile
-              <span class="form-grid__label-hint">— optional</span>
-            </span>
-            <el-input
-              v-model="form.linkedin_url"
-              placeholder="https://www.linkedin.com/in/your-handle"
-              maxlength="500"
-              type="url"
-            />
-          </label>
-          <label class="form-grid__span-2">
-            <span class="form-grid__label">
-              Disease expertise
-              <span class="form-grid__label-hint">— select all that apply</span>
-            </span>
-            <el-select
-              v-model="form.primary_diseases"
-              multiple
-              collapse-tags
-              collapse-tags-tooltip
-              placeholder="Select all that apply (e.g. Epilepsy, PTE, TBI)"
-              style="width: 100%"
-            >
-              <el-option
-                v-for="d in selectableDiseases"
-                :key="d.key"
-                :value="d.key"
-                :label="d.longLabel"
-              />
-            </el-select>
-            <span class="form-grid__hint subtle">
-              Sessions cycle through these one at a time — pick everything you're qualified to weigh in on.
-            </span>
-          </label>
-          <label>
-            <span class="form-grid__label">Study context</span>
-            <el-select
-              v-model="form.primary_study_type"
-              placeholder="Both clinical & preclinical"
-              clearable
-              style="width: 100%"
-            >
-              <el-option label="Clinical" value="Clinical" />
-              <el-option label="Preclinical" value="Preclinical" />
-            </el-select>
-          </label>
-        </div>
-        <div class="form-grid__actions">
-          <el-button v-if="editing && reviewer" @click="editing = false">Cancel</el-button>
-          <el-button type="primary" size="large" @click="saveProfile">
-            {{ reviewer ? 'Save changes' : 'Save profile' }}
-          </el-button>
-        </div>
-      </section>
-
       <!-- Reviewer landing -->
       <template v-else-if="authStep === 'authed' && reviewer">
 
@@ -665,6 +681,20 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
               <kbd>S</kbd> skips.
             </p>
           </header>
+
+          <!-- Sample-dataset notice: tells the reviewer this isn't a real
+               curation effort, but reassures them that responses are still
+               recorded so they don't think they're shouting into a void. -->
+          <div
+            v-if="activeSource && activeSource.kind === 'sample'"
+            class="sample-notice"
+          >
+            <strong>Sample dataset.</strong>
+            This source is a training/illustrative set — your tier picks
+            won't roll up to a published curation, but they're still
+            captured in the API so we can see how reviewers approach the
+            material and refine the experience.
+          </div>
 
           <!-- Scope preview — reflects back to the reviewer exactly what
                they're about to review so they can confirm before starting. -->
@@ -1055,7 +1085,24 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     font-size: 13px;
     font-weight: 600;
     color: $gray_6;
+    line-height: 1.3;
   }
+
+  // Subtle "Sample" pill that sits inline with the source name. Slate
+  // tone reads as a neutral status marker — clearly auxiliary without
+  // looking like a warning or competing with the disease pill's color.
+  &__sample-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    background: #e2e8f0;
+    color: #475569;
+  }
+
 
   &__badges {
     display: flex;
@@ -1064,12 +1111,20 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
     align-items: center;
   }
 
+  // Study-type pill — outlined rather than filled, so it sits next to the
+  // disease pill and Sample tag without introducing yet another color.
+  // The outline reads as auxiliary metadata rather than a status badge.
   &__study {
-    font-size: 10px;
-    color: $gray_5;
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 2px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
     text-transform: uppercase;
-    letter-spacing: 0.4px;
-    font-weight: 600;
+    background: transparent;
+    color: $gray_5;
+    border: 1px solid $lineColor2;
   }
 
   &__count {
@@ -1084,6 +1139,25 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
   }
 }
 
+// Sample-dataset notice on the session launcher — amber-tinted, thin
+// left rule, calm. Tells the reviewer this is a training set without
+// alarming them; reassures that responses are still captured.
+.sample-notice {
+  padding: 10px 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-left: 3px solid #b45309;
+  border-radius: 3px;
+  font-size: 12px;
+  line-height: 1.55;
+  color: #5a3603;
+
+  strong {
+    color: #92400e;
+    font-weight: 700;
+  }
+}
+
 // Disease badge palette — small color-coded pill that matches the PDF
 // accent palette. Used on source chips and the active-source meta strip.
 .disease-pill {
@@ -1095,7 +1169,7 @@ const selectableDiseases = DISEASE_OPTIONS.filter((o) => o.key !== 'all');
   letter-spacing: 0.4px;
   text-transform: uppercase;
 
-  &--pte         { background: #fde2ee; color: #be185d; }
+  &--pte         { background: #e0e7ff; color: #3730a3; }
   &--tbi         { background: #fdebd5; color: #b45309; }
   &--sci         { background: #d8f5f3; color: #0e7d7b; }
   &--neurotrauma { background: #e3e8ee; color: #475569; }

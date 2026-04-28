@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cde.epilepsy.science/schemas/cde.schema.json",
+  "title": "Common Data Element (CDE)",
+  "description": "A single Common Data Element — a standardized question with a defined data type and (for value-list types) a fixed set of permissible values. Per-disease classification (Core / Recommended / Supplemental) is recorded separately on cde_classification rows.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "cde_name",
+    "cde_data_type",
+    "cde_definition",
+    "cde_source"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "cde_name": {
+      "type": "string"
+    },
+    "aliases": {
+      "type": "string"
+    },
+    "cde_data_type": {
+      "type": "string"
+    },
+    "cde_definition": {
+      "type": "string"
+    },
+    "cde_source": {
+      "type": "string"
+    },
+    "cde_type": {
+      "type": "string"
+    },
+    "steward_org": {
+      "type": "string"
+    },
+    "registration_status": {
+      "type": "string"
+    },
+    "keywords": {
+      "type": "string"
+    },
+    "preferred_question_text": {
+      "type": "string"
+    },
+    "pv_codes": {
+      "type": "string"
+    },
+    "pv_labels": {
+      "type": "string"
+    },
+    "pv_definitions": {
+      "type": "string"
+    },
+    "pv_code_systems": {
+      "type": "string"
+    },
+    "pv_concept_identifiers": {
+      "type": "string"
+    },
+    "pv_terminology_sources": {
+      "type": "string"
+    },
+    "unit_of_measure": {
+      "type": "string"
+    },
+    "min_value": {
+      "type": "string"
+    },
+    "max_value": {
+      "type": "string"
+    },
+    "cde_origin": {
+      "type": "string"
+    },
+    "population": {
+      "type": "string"
+    },
+    "cdisc_domain": {
+      "type": "string"
+    },
+    "cdisc_variable_name": {
+      "type": "string"
+    },
+    "cdisc_variable_label": {
+      "type": "string"
+    },
+    "references": {
+      "type": "string"
+    },
+    "nlm_identifier": {
+      "type": "string"
+    },
+    "dec_identifier": {
+      "type": "string"
+    },
+    "dec_terminology_source": {
+      "type": "string"
+    },
+    "dec_name": {
+      "type": "string"
+    },
+    "other_identifiers": {
+      "type": "string"
+    }
+  },
+  "x-source": "cde-review-dashboard parquet introspection",
+  "x-generated-at": "2026-04-28T16:08:55.930Z"
+}

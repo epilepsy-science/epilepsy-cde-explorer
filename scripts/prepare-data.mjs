@@ -155,7 +155,7 @@ const MODELS = [
 
 /** Read the provenance record from a source dir to derive its sourceKey/label/study_type. */
 function readProvenance(sourceDir) {
-  const fallback = { key: basename(sourceDir), label: basename(sourceDir), studyType: null };
+  const fallback = { key: basename(sourceDir), label: basename(sourceDir), studyType: null, kind: 'production' };
   const p = resolve(sourceDir, 'metadata/models/provenance/versions/1/records.jsonl');
   if (!existsSync(p)) return fallback;
   const first = readFileSync(p, 'utf8').split('\n').find((l) => l.trim());
@@ -166,6 +166,7 @@ function readProvenance(sourceDir) {
       key: rec.data?.source_key ?? fallback.key,
       label: rec.data?.label ?? fallback.label,
       studyType: rec.data?.study_type ?? null,
+      kind: rec.data?.kind === 'sample' ? 'sample' : 'production',
     };
   } catch {
     return fallback;
@@ -434,6 +435,7 @@ async function main() {
       key: prov.key,
       label: prov.label,
       study_type: prov.studyType,
+      kind: prov.kind,
       order: i,
       files: files.map((n) => `${n}.parquet`),
     });

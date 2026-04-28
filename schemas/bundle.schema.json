@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cde.epilepsy.science/schemas/bundle.schema.json",
+  "title": "Bundle",
+  "description": "A group of CDEs that travel together (e.g. \"Body Temperature\" combines value, unit, and method). Bundles are the unit of \"Add to CRF\" and the unit of review — every member CDE inherits the bundle's tier decision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_name",
+    "domain",
+    "subdomain",
+    "category",
+    "working_group"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "bundle_name": {
+      "type": "string"
+    },
+    "description": {
+      "type": "string"
+    },
+    "display_name": {
+      "type": "string"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "subdomain": {
+      "type": "string"
+    },
+    "category": {
+      "type": "string"
+    },
+    "working_group": {
+      "type": "string"
+    }
+  },
+  "x-source": "cde-review-dashboard parquet introspection",
+  "x-generated-at": "2026-04-28T16:08:55.937Z"
+}

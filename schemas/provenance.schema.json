@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cde.epilepsy.science/schemas/provenance.schema.json",
+  "title": "Source Provenance",
+  "description": "One record per source describing the dataset itself — label, study type, extraction date, and the workgroup that maintains it. Lets the dashboard surface which CDEs come from which catalog.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "source_key",
+    "label"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "source_key": {
+      "type": "string"
+    },
+    "label": {
+      "type": "string"
+    },
+    "study_type": {
+      "type": "string"
+    },
+    "kind": {
+      "type": "string"
+    }
+  },
+  "x-source": "cde-review-dashboard parquet introspection",
+  "x-generated-at": "2026-04-28T16:08:55.942Z"
+}

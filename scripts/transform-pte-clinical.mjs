@@ -195,6 +195,10 @@ function build(rows) {
       source_key: SOURCE_KEY,
       label: SOURCE_LABEL,
       study_type: STUDY_TYPE,
+      // Curated subset for reviewer training, not a finalized published
+      // catalog — flagged as 'sample' so the dashboard surfaces a
+      // "Sample" badge during review.
+      kind: 'sample',
     },
   };
 

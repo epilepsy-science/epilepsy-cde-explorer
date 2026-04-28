@@ -45,7 +45,7 @@ function classif({
   suppl = [],
   na = [],
   notes = null,
-  version = 'NT-PRECEDS Demo v1.0',
+  version = 'Sample Preclinical v1.0',
   // CDE-intrinsic — collected here for ergonomic call sites, applied to
   // the cde record at emit time.
   minv,
@@ -98,8 +98,8 @@ function cde({
   aliases = null,
   dtype,
   definition,
-  source = 'NT-PRECEDS Demo',
-  stewardOrg = 'NT-PRECEDS',
+  source = 'Sample Preclinical',
+  stewardOrg = null,
   registrationStatus = null,
   question = null,
   keywords = null,
@@ -218,7 +218,7 @@ const CDES = {
       keywords: 'study, protocol, identifier',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:StudyID',
+      variable: 'SAMPLE:StudyID',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'TS', var: 'STUDYID', label: 'Study Identifier' },
     }),
@@ -234,7 +234,7 @@ const CDES = {
       question: 'Who is the principal investigator?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:PIName',
+      variable: 'SAMPLE:PIName',
       core: ['agnostic'],
       rec: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
@@ -250,7 +250,7 @@ const CDES = {
       question: 'On what date did the study begin?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:StudyStartDate',
+      variable: 'SAMPLE:StudyStartDate',
       core: ['agnostic'],
       rec: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
@@ -267,7 +267,7 @@ const CDES = {
       keywords: 'ethics, animal welfare, approval',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:IACUCProtocolNumber',
+      variable: 'SAMPLE:IACUCProtocolNumber',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Study Metadata',
@@ -285,7 +285,7 @@ const CDES = {
       keywords: 'animal, subject, identifier',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SubjectID',
+      variable: 'SAMPLE:SubjectID',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'USUBJID', label: 'Unique Subject Identifier' },
     }),
@@ -306,7 +306,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:Sex',
+      variable: 'SAMPLE:Sex',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'SEX', label: 'Sex' },
     }),
@@ -328,7 +328,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:Species',
+      variable: 'SAMPLE:Species',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'SPECIES', label: 'Species' },
     }),
@@ -345,7 +345,7 @@ const CDES = {
       keywords: 'strain, genetic background',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:Strain',
+      variable: 'SAMPLE:Strain',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'STRAIN', label: 'Strain' },
     }),
@@ -362,7 +362,7 @@ const CDES = {
       keywords: 'genotype, transgene, knockout, reporter',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:Genotype',
+      variable: 'SAMPLE:Genotype',
       rec: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Subject Metadata',
@@ -377,7 +377,7 @@ const CDES = {
       question: "What is the subject's date of birth?",
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:DateOfBirth',
+      variable: 'SAMPLE:DateOfBirth',
       rec: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'BRTHDTC', label: 'Date/Time of Birth' },
     }),
@@ -397,7 +397,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AgeValue',
+      variable: 'SAMPLE:AgeValue',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       minv: 0,
       maxv: 1000,
@@ -418,7 +418,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AgeUnit',
+      variable: 'SAMPLE:AgeUnit',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'DM', var: 'AGEU', label: 'Age Units' },
     }),
@@ -438,7 +438,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:BodyWeightValue',
+      variable: 'SAMPLE:BodyWeightValue',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       rec: ['agnostic'],
       minv: 0,
@@ -463,7 +463,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:BodyWeightUnit',
+      variable: 'SAMPLE:BodyWeightUnit',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       rec: ['agnostic'],
     }),
@@ -491,7 +491,7 @@ const CDES = {
       refs: 'https://doi.org/10.1089/neu.2019.6400; https://doi.org/10.1038/nrn.2017.13',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:InjuryModel',
+      variable: 'SAMPLE:InjuryModel',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       na: ['agnostic'],
     }),
@@ -507,7 +507,7 @@ const CDES = {
       question: 'On what date was the injury performed?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:InjuryDate',
+      variable: 'SAMPLE:InjuryDate',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       na: ['agnostic'],
     }),
@@ -529,7 +529,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:InjuryHemisphere',
+      variable: 'SAMPLE:InjuryHemisphere',
       core: ['tbi', 'pte'],
       na: ['sci'],
       suppl: ['neurotrauma'],
@@ -549,7 +549,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:ImpactVelocityValue',
+      variable: 'SAMPLE:ImpactVelocityValue',
       core: ['tbi', 'pte'],
       suppl: ['neurotrauma'],
       minv: 0,
@@ -573,7 +573,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:ImpactVelocityUnit',
+      variable: 'SAMPLE:ImpactVelocityUnit',
       core: ['tbi', 'pte'],
       suppl: ['neurotrauma'],
     }),
@@ -599,7 +599,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:ImpactActuatorType',
+      variable: 'SAMPLE:ImpactActuatorType',
       core: ['tbi'],
       rec: ['pte'],
       suppl: ['neurotrauma'],
@@ -618,7 +618,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:ImpactActuatorOther',
+      variable: 'SAMPLE:ImpactActuatorOther',
       suppl: ['tbi', 'pte', 'neurotrauma'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -638,7 +638,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:CraniotomyAP',
+      variable: 'SAMPLE:CraniotomyAP',
       core: ['tbi'],
       rec: ['pte'],
       minv: -10,
@@ -659,7 +659,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:CraniotomyML',
+      variable: 'SAMPLE:CraniotomyML',
       core: ['tbi'],
       rec: ['pte'],
       minv: 0,
@@ -680,7 +680,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:CraniotomyDV',
+      variable: 'SAMPLE:CraniotomyDV',
       core: ['tbi'],
       rec: ['pte'],
       minv: 0,
@@ -701,7 +701,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:CraniotomyDiameter',
+      variable: 'SAMPLE:CraniotomyDiameter',
       core: ['tbi'],
       rec: ['pte'],
       minv: 0,
@@ -730,7 +730,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AnesthesiaAgent',
+      variable: 'SAMPLE:AnesthesiaAgent',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -747,7 +747,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AnesthesiaDoseValue',
+      variable: 'SAMPLE:AnesthesiaDoseValue',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       minv: 0,
       maxv: 500,
@@ -767,7 +767,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AnesthesiaDoseUnit',
+      variable: 'SAMPLE:AnesthesiaDoseUnit',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -785,7 +785,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:AnesthesiaRoute',
+      variable: 'SAMPLE:AnesthesiaRoute',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -805,7 +805,7 @@ const CDES = {
       keywords: 'pharmacology, treatment',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:DrugName',
+      variable: 'SAMPLE:DrugName',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'EX', var: 'EXTRT', label: 'Name of Treatment' },
     }),
@@ -823,7 +823,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:DrugDoseValue',
+      variable: 'SAMPLE:DrugDoseValue',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       minv: 0,
       maxv: 1000,
@@ -844,7 +844,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:DrugDoseUnit',
+      variable: 'SAMPLE:DrugDoseUnit',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'EX', var: 'EXDOSU', label: 'Dose Units' },
     }),
@@ -863,7 +863,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:DrugRoute',
+      variable: 'SAMPLE:DrugRoute',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       cdisc: { domain: 'EX', var: 'EXROUTE', label: 'Route of Administration' },
     }),
@@ -883,7 +883,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:BodyTemperatureValue',
+      variable: 'SAMPLE:BodyTemperatureValue',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
       minv: 30,
       maxv: 42,
@@ -906,7 +906,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:BodyTemperatureUnit',
+      variable: 'SAMPLE:BodyTemperatureUnit',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Physiology',
@@ -929,7 +929,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:BodyTemperatureMethod',
+      variable: 'SAMPLE:BodyTemperatureMethod',
       rec: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Physiology',
@@ -948,7 +948,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SamplingRateValue',
+      variable: 'SAMPLE:SamplingRateValue',
       core: ['pte'],
       rec: ['tbi'],
       minv: 1,
@@ -972,7 +972,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SamplingRateUnit',
+      variable: 'SAMPLE:SamplingRateUnit',
       core: ['pte'],
       rec: ['tbi'],
     }),
@@ -992,7 +992,7 @@ const CDES = {
       unit: 'count',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:EEGChannelCount',
+      variable: 'SAMPLE:EEGChannelCount',
       core: ['pte'],
       rec: ['tbi'],
       minv: 1,
@@ -1016,7 +1016,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:EEGElectrodeType',
+      variable: 'SAMPLE:EEGElectrodeType',
       core: ['pte'],
       rec: ['tbi'],
     }),
@@ -1035,7 +1035,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SeizureOnsetDate',
+      variable: 'SAMPLE:SeizureOnsetDate',
       core: ['pte'],
       suppl: ['tbi'],
     }),
@@ -1053,7 +1053,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SeizureOnsetTime',
+      variable: 'SAMPLE:SeizureOnsetTime',
       core: ['pte'],
       suppl: ['tbi'],
     }),
@@ -1077,7 +1077,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SeizureOnsetPrecision',
+      variable: 'SAMPLE:SeizureOnsetPrecision',
       rec: ['pte'],
       suppl: ['tbi'],
     }),
@@ -1106,7 +1106,7 @@ const CDES = {
       refs: 'https://doi.org/10.1111/epi.13671',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:SeizureType',
+      variable: 'SAMPLE:SeizureType',
       core: ['pte'],
       suppl: ['tbi'],
     }),
@@ -1132,7 +1132,7 @@ const CDES = {
       cdeType: 'Standalone',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:RacineScore',
+      variable: 'SAMPLE:RacineScore',
       core: ['pte'],
       rec: ['tbi'],
     }),
@@ -1151,7 +1151,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:MWMEscapeLatencyValue',
+      variable: 'SAMPLE:MWMEscapeLatencyValue',
       rec: ['tbi', 'pte', 'neurotrauma'],
       minv: 0,
       maxv: 120,
@@ -1174,7 +1174,7 @@ const CDES = {
       cdeType: 'Bundled Set of Questions',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:MWMEscapeLatencyUnit',
+      variable: 'SAMPLE:MWMEscapeLatencyUnit',
       rec: ['tbi', 'pte', 'neurotrauma'],
     }),
     domain: 'Assessments, Assays and Outcomes',
@@ -1191,7 +1191,7 @@ const CDES = {
       unit: 'count',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:MWMTrialNumber',
+      variable: 'SAMPLE:MWMTrialNumber',
       rec: ['tbi', 'pte', 'neurotrauma'],
       minv: 1,
       maxv: 40,
@@ -1210,7 +1210,7 @@ const CDES = {
       question: 'On what date was the subject euthanized?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:EuthanasiaDate',
+      variable: 'SAMPLE:EuthanasiaDate',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -1232,7 +1232,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:EuthanasiaMethod',
+      variable: 'SAMPLE:EuthanasiaMethod',
       core: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -1247,7 +1247,7 @@ const CDES = {
       question: 'What is the tissue sample identifier?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:TissueSampleID',
+      variable: 'SAMPLE:TissueSampleID',
       rec: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Procedures and Experimental Parameters',
@@ -1270,7 +1270,7 @@ const CDES = {
       ],
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:StainType',
+      variable: 'SAMPLE:StainType',
       rec: ['neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Assessments, Assays and Outcomes',
@@ -1287,7 +1287,7 @@ const CDES = {
       question: 'On what date was the observation made?',
     }),
     cls: classif({
-      variable: 'NT-PRECEDS:ObservationDate',
+      variable: 'SAMPLE:ObservationDate',
       core: ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'],
     }),
     domain: 'Study Metadata',
@@ -1309,7 +1309,7 @@ const BUNDLES = {
     category: 'Age',
     working_group: 'Subject Characterization',
     disease_scope: 'Agnostic',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Body_Weight: {
     display: 'Body Weight',
@@ -1319,7 +1319,7 @@ const BUNDLES = {
     category: 'Body Weight',
     working_group: 'Subject Characterization',
     disease_scope: 'Agnostic',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Impact_Velocity: {
     display: 'Impact Velocity',
@@ -1329,7 +1329,7 @@ const BUNDLES = {
     category: 'Impact Parameters',
     working_group: 'TBI/PTE Injury',
     disease_scope: 'TBI/PTE',
-    source: 'PRECISE-TBI; NT-PRECEDS Demo',
+    source: 'PRECISE-TBI; Sample Preclinical',
   },
   Impact_Actuator: {
     display: 'Impact Actuator',
@@ -1339,7 +1339,7 @@ const BUNDLES = {
     category: 'Impact Parameters',
     working_group: 'TBI/PTE Injury',
     disease_scope: 'TBI/PTE',
-    source: 'PRECISE-TBI; NT-PRECEDS Demo',
+    source: 'PRECISE-TBI; Sample Preclinical',
   },
   Craniotomy_Coordinates: {
     display: 'Craniotomy Coordinates',
@@ -1349,7 +1349,7 @@ const BUNDLES = {
     category: 'Craniotomy',
     working_group: 'TBI/PTE Injury',
     disease_scope: 'TBI/PTE',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Anesthesia: {
     display: 'Anesthesia Protocol',
@@ -1359,7 +1359,7 @@ const BUNDLES = {
     category: 'Anesthesia Protocol',
     working_group: 'Neurotrauma',
     disease_scope: 'Neurotrauma',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Drug_Administration: {
     display: 'Drug Administration',
@@ -1369,7 +1369,7 @@ const BUNDLES = {
     category: 'Treatment',
     working_group: 'Neurotrauma',
     disease_scope: 'Neurotrauma',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Body_Temperature: {
     display: 'Body Temperature Measurement',
@@ -1379,7 +1379,7 @@ const BUNDLES = {
     category: 'Body Temperature',
     working_group: 'Neurotrauma',
     disease_scope: 'Neurotrauma',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   EEG_Sampling: {
     display: 'EEG Sampling Configuration',
@@ -1389,7 +1389,7 @@ const BUNDLES = {
     category: 'EEG Acquisition',
     working_group: 'PTE',
     disease_scope: 'PTE',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   Seizure_Onset: {
     display: 'Seizure Onset Timestamp',
@@ -1399,7 +1399,7 @@ const BUNDLES = {
     category: 'Seizure Event',
     working_group: 'PTE',
     disease_scope: 'PTE',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
   MWM_Escape_Latency: {
     display: 'Morris Water Maze Escape Latency',
@@ -1409,7 +1409,7 @@ const BUNDLES = {
     category: 'Spatial Learning',
     working_group: 'Neurotrauma',
     disease_scope: 'Neurotrauma',
-    source: 'NT-PRECEDS Demo',
+    source: 'Sample Preclinical',
   },
 };
 
@@ -1593,9 +1593,13 @@ const CRFS = [
 // rendered or queried, so they're omitted across all extractors now.
 const PROVENANCE = [
   {
-    source_key: 'nt-preceds-demo-v1',
-    label: 'NT-PRECEDS Demo CDE Set v1.0',
+    source_key: 'sample-preclinical-cdes-v1',
+    label: 'Sample Preclinical CDEs',
     study_type: 'Preclinical',
+    // 'sample' = illustrative training dataset; reviewers are warned that
+    // their feedback won't roll up to a published curation. 'production'
+    // sources are real catalog efforts (NINDS, NLM, PTE-Clinical, etc.).
+    kind: 'sample',
   },
 ];
 
@@ -1799,7 +1803,7 @@ function main() {
 
   // Manifest (minimal)
   const manifest = {
-    name: 'NT-PRECEDS CDE Demo Dataset',
+    name: 'Sample Preclinical CDE Set',
     description:
       'Hand-curated preclinical neurotrauma demo CDEs, Bundles, and CRFs for the CDE Review Dashboard.',
     version: 1,

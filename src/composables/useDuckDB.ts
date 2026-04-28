@@ -13,6 +13,10 @@ interface SourceManifestEntry {
   key: string;
   label: string;
   study_type?: 'Clinical' | 'Preclinical' | null;
+  /** 'sample' = illustrative training dataset; reviewers see a "Sample"
+   *  badge so they know feedback won't roll up to a published curation.
+   *  Defaults to 'production' for sources that predate the field. */
+  kind?: 'sample' | 'production';
   order: number;
   files: string[];
 }
@@ -177,7 +181,8 @@ async function init(): Promise<DuckDBHandle> {
           s.study_type === 'Clinical' || s.study_type === 'Preclinical'
             ? `'${s.study_type}'`
             : 'CAST(NULL AS VARCHAR)';
-        return `SELECT '${s.key.replace(/'/g, "''")}' AS source_key, '${s.label.replace(/'/g, "''")}' AS label, ${s.order} AS ord, ${studyType} AS study_type`;
+        const kind = s.kind === 'sample' ? "'sample'" : "'production'";
+        return `SELECT '${s.key.replace(/'/g, "''")}' AS source_key, '${s.label.replace(/'/g, "''")}' AS label, ${s.order} AS ord, ${studyType} AS study_type, ${kind} AS kind`;
       })
       .join('\nUNION ALL\n');
     await conn.query(
