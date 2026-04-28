@@ -28,10 +28,16 @@ const loading = ref(false);
 type GroupBy = 'domain' | 'subdomain' | 'category' | 'source';
 const groupBy = ref<GroupBy>('domain');
 
+// Group dimensions read from the CDE-level taxonomy columns, NOT the
+// bundle-level ones. cde_domain (and friends) is `COALESCE(cl.domain,
+// b.domain)` — populated for every CDE regardless of bundle membership.
+// bundle_domain is only set when the CDE actually belongs to a bundle, so
+// using it would collapse all clinical CDEs (NINDS / NLM / PTE-clinical,
+// which have no bundles) to "Unassigned".
 const GROUP_BY_OPTIONS: Array<{ key: GroupBy; label: string; sqlExpr: string }> = [
-  { key: 'domain', label: 'Domain', sqlExpr: `COALESCE(bundle_domain, 'Unassigned')` },
-  { key: 'subdomain', label: 'Subdomain', sqlExpr: `COALESCE(bundle_subdomain, 'Unassigned')` },
-  { key: 'category', label: 'Category', sqlExpr: `COALESCE(bundle_category, 'Unassigned')` },
+  { key: 'domain', label: 'Domain', sqlExpr: `COALESCE(cde_domain, 'Unassigned')` },
+  { key: 'subdomain', label: 'Subdomain', sqlExpr: `COALESCE(cde_subdomain, 'Unassigned')` },
+  { key: 'category', label: 'Category', sqlExpr: `COALESCE(cde_category, 'Unassigned')` },
   { key: 'source', label: 'Source', sqlExpr: `COALESCE(origins, 'Unknown')` },
 ];
 
@@ -138,9 +144,9 @@ async function load() {
         HAVING ${tierExpr} IN ('Core', 'Recommended', 'Supplemental')
       `),
       query<{ label: string; n: number }>(`
-        SELECT COALESCE(bundle_domain, 'Unassigned') AS label, count(*) AS n
+        SELECT COALESCE(cde_domain, 'Unassigned') AS label, count(*) AS n
         FROM cde_full ${where}
-        GROUP BY COALESCE(bundle_domain, 'Unassigned')
+        GROUP BY COALESCE(cde_domain, 'Unassigned')
       `),
       // Origins is the canonical-dedup label list (e.g. "NINDS Epilepsy · NLM
       // CDE Repository") — bucket each CDE by the full set of sources it
