@@ -320,6 +320,7 @@ export function buildJsonSchema(
     schema: doc,
     fieldCount: Object.keys(doc.properties).length,
     missingRefs,
+    diseaseKey,
   };
 }
 

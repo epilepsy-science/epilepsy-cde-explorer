@@ -20,7 +20,11 @@ function readCustom(): CrfRecord[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as CustomStorage;
     if (parsed.version !== 1 || !Array.isArray(parsed.crfs)) return [];
-    return parsed.crfs.map((c) => ({ registration_status: null, ...c, source: 'custom' }));
+    return parsed.crfs.map((c) => ({
+      ...c,
+      registration_status: c.registration_status ?? null,
+      source: 'custom' as const,
+    }));
   } catch {
     return [];
   }

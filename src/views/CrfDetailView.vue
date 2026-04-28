@@ -18,6 +18,7 @@ import {
   type JsonSchemaCdeInput,
   type JsonSchemaBundleInput,
 } from '@/utils/jsonSchemaExport';
+import type { PdfCdeInput, PdfBundleInput } from '@/utils/pdfExport';
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
 import { trackEvent } from '@/api/analytics';
 
@@ -457,6 +458,43 @@ function exportToRedcap() {
   }
 }
 
+async function exportToPdf() {
+  if (!crf.value) return;
+  const cdesByRef = cdeByName.value as unknown as Map<string, PdfCdeInput>;
+  const bundlesByRef = bundleByName.value as unknown as Map<string, PdfBundleInput>;
+  let result;
+  try {
+    // Dynamic-import the heavy module so non-PDF users don't pay for it.
+    const { buildCrfPdf, downloadCrfPdf } = await import('@/utils/pdfExport');
+    result = await buildCrfPdf(crf.value, cdesByRef, bundlesByRef);
+    if (result.fieldCount === 0) {
+      ElMessage.warning('Nothing to export — this CRF has no resolvable fields.');
+      return;
+    }
+    downloadCrfPdf(crf.value, result.bytes);
+  } catch (e) {
+    ElMessage.error(`PDF export failed: ${(e as Error).message}`);
+    return;
+  }
+
+  trackEvent('pdf_exported', {
+    crf_source: crf.value.source,
+    field_count: result.fieldCount,
+    missing_refs_count: result.missingRefs.length,
+  });
+
+  if (result.missingRefs.length) {
+    ElNotification({
+      type: 'warning',
+      title: 'Exported with missing refs',
+      message: `Skipped ${result.missingRefs.length} unresolved item(s). First: ${result.missingRefs[0]}`,
+      duration: 6000,
+    });
+  } else {
+    ElMessage.success(`Exported ${result.fieldCount} fields to PDF.`);
+  }
+}
+
 function exportToJsonSchema() {
   if (!crf.value) return;
   const cdesByRef = cdeByName.value as unknown as Map<string, JsonSchemaCdeInput>;
@@ -538,7 +576,11 @@ function exportToJsonSchema() {
             <el-dropdown
               trigger="click"
               :disabled="!canExport"
-              @command="(cmd: string) => cmd === 'redcap' ? exportToRedcap() : exportToJsonSchema()"
+              @command="(cmd: string) => {
+                if (cmd === 'redcap') exportToRedcap();
+                else if (cmd === 'json-schema') exportToJsonSchema();
+                else if (cmd === 'pdf') exportToPdf();
+              }"
             >
               <el-button type="primary" :disabled="!canExport">
                 <el-icon style="margin-right: 4px"><Download /></el-icon>
@@ -547,6 +589,9 @@ function exportToJsonSchema() {
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
+                  <el-dropdown-item command="pdf">
+                    Fillable PDF
+                  </el-dropdown-item>
                   <el-dropdown-item command="redcap">
                     REDCap data dictionary (CSV)
                   </el-dropdown-item>
