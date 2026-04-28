@@ -183,21 +183,6 @@ function build({ catalog, crfs, details }) {
       source_key: SOURCE_KEY,
       label: `${SOURCE_LABEL} CDEs`,
       study_type: 'Clinical',
-      workgroup: 'NINDS',
-      extraction_date: TODAY,
-      file_date: TODAY,
-      file_name: null,
-      sheet_name: null,
-      folder_path: null,
-      format_tier: 'NINDS CDE Catalog API',
-      etl_version: 'ninds-fetch-1.0',
-      cde_count: details.size,
-      bundle_count: 0, // filled in below
-      classification_count: catalog.length,
-      review_count: null,
-      notes:
-        'Extracted via https://ninds.cde-editor.com/cdeService/ (unofficial JSON ' +
-        'API backing the NINDS CDE Catalog SPA) for diseaseId=EPILEPSY.',
     },
   };
 
@@ -211,13 +196,18 @@ function build({ catalog, crfs, details }) {
       id: uuid,
       data: {
         cde_name: d.cdeName,
+        // NINDS doesn't expose alternate designations; aliases stay null.
+        aliases: null,
         cde_data_type: mapDataType(d.dataType, d.inputRestrictions),
         cde_definition: nullIfEmpty(d.definition) || d.cdeName,
         cde_source: SOURCE_LABEL,
         cde_type: null,
+        // Steward org is implicit for this source — it's all NINDS.
+        steward_org: 'NINDS',
+        // NINDS doesn't surface a registration lifecycle marker.
+        registration_status: null,
         keywords: null,
         preferred_question_text: nullIfEmpty(d.shortDescription),
-        pv_uri: null,
         pv_codes: null,
         pv_labels: pipe(d.permissibleValues),
         pv_definitions: pipe(d.pvDescriptions),
@@ -225,6 +215,14 @@ function build({ catalog, crfs, details }) {
         pv_concept_identifiers: null,
         pv_terminology_sources: null,
         unit_of_measure: nullIfEmpty(d.measurementType),
+        // CDE-intrinsic numeric range (moved from cde_classification).
+        min_value: nullIfEmpty(d.minValue),
+        max_value: nullIfEmpty(d.maxValue),
+        cde_origin: 'COLLECTED',
+        population: nullIfEmpty(d.population),
+        cdisc_domain: null,
+        cdisc_variable_name: nullIfEmpty(d.externalID_CDISC),
+        cdisc_variable_label: null,
         references:
           d.diseaseSpecificReference && d.diseaseSpecificReference !== 'No references available'
             ? d.diseaseSpecificReference
@@ -232,6 +230,7 @@ function build({ catalog, crfs, details }) {
         nlm_identifier: d.cdeId,
         dec_identifier: nullIfEmpty(d.externalID_caDSR),
         dec_terminology_source: d.externalID_caDSR ? 'caDSR' : null,
+        dec_name: null,
         other_identifiers: buildOtherIdentifiers(d),
       },
     });
@@ -240,7 +239,6 @@ function build({ catalog, crfs, details }) {
   // NINDS has no NT-PRECEDS-style "bundle" (tight set of CDEs always captured
   // together, e.g. Age Value + Age Unit). CRFs are too coarse (20–100 CDEs) to
   // map onto that concept, so no bundle records are emitted.
-  provenance.data.bundle_count = 0;
 
   // ----- Classification records (one per cde × crf pairing = one row in the
   //       NINDS catalog response) -----
@@ -260,15 +258,8 @@ function build({ catalog, crfs, details }) {
         variable_name: `${row.cdeId}_${row.crfId}`,
         version_name: `NINDS ${row.crfName} v${row.version || '1.00'}`,
         version_date: row.versionDate ? row.versionDate.slice(0, 10) : TODAY,
-        cde_origin: 'COLLECTED',
-        min_value: nullIfEmpty(det.minValue),
-        max_value: nullIfEmpty(det.maxValue),
         notes: nullIfEmpty(det.additionalNotes),
         additional_instructions: nullIfEmpty(det.diseaseSpecificInstructions),
-        // NINDS CDISC codes are only the external ID — no CDISC domain/var/label split.
-        cdisc_domain: null,
-        cdisc_variable_name: nullIfEmpty(det.externalID_CDISC),
-        cdisc_variable_label: null,
         // NINDS records the disease scope authoritatively (diseaseId=EPILEPSY
         // for every row in this pull). Other disease columns exist so the view
         // can LEFT JOIN across heterogeneous sources without missing-column errors.
@@ -284,7 +275,6 @@ function build({ catalog, crfs, details }) {
         classification_pte: null,
         disease_sci: 'N',
         classification_sci: null,
-        population: nullIfEmpty(det.population),
         domain: row.domainName || det.domainName || null,
         subdomain: row.subDomainName || det.subDomainName || null,
         category: row.crfName || null,

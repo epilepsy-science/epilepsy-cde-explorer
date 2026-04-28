@@ -1,10 +1,20 @@
 export interface CdeRow {
   cde_id: string;
   cde_name: string;
+  /** Pipe-joined alternate designations (NLM `designations[1..]`). Null when
+   *  the source doesn't ship aliases (NINDS, demo, PTE-clinical). */
+  aliases: string | null;
   cde_data_type: string;
   cde_definition: string;
   cde_source: string | null;
   cde_type: string | null;
+  /** Owning organization that stewards the CDE (NLM `stewardOrg.name`).
+   *  NLM federates many stewards (caDSR, NINDS, NHLBI, CTEP, …); this keeps
+   *  the distinction even when our top-level cde_source collapses them. */
+  steward_org: string | null;
+  /** NLM lifecycle marker — Standard / Qualified / Recorded / Candidate /
+   *  Retired. Null when the source doesn't expose one. */
+  registration_status: string | null;
   keywords: string | null;
   preferred_question_text: string | null;
 
@@ -14,7 +24,6 @@ export interface CdeRow {
   pv_code_systems: string | null;
   pv_concept_identifiers: string | null;
   pv_terminology_sources: string | null;
-  pv_uri: string | null;
   unit_of_measure: string | null;
   refs: string | null;
   nlm_identifier: string | null;
@@ -22,15 +31,19 @@ export interface CdeRow {
   dec_terminology_source: string | null;
   other_identifiers: string | null;
 
-  variable_name: string | null;
+  // CDE-intrinsic fields (moved from cde_classification — they don't vary
+  // per disease so they belong with the CDE, not its disease tier).
+  min_value: number | null;
+  max_value: number | null;
+  cde_origin: string | null;
+  population: string | null;
   cdisc_domain: string | null;
   cdisc_variable_name: string | null;
   cdisc_variable_label: string | null;
-  cde_origin: string | null;
+
+  variable_name: string | null;
   version_name: string | null;
   version_date: string | null;
-  min_value: number | null;
-  max_value: number | null;
   classification_notes: string | null;
   additional_instructions: string | null;
 

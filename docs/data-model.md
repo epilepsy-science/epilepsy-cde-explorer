@@ -67,15 +67,22 @@ canonical.
 
 | Field | Notes |
 | --- | --- |
-| `cde_name` | Human-readable name. Sources sometimes disagree; first-source wins on canonical reconciliation. |
+| `cde_name` | Human-readable name (the source's "preferred" designation). Sources sometimes disagree; first-source wins on canonical reconciliation. |
+| `aliases` | Pipe-joined alternate designations (NLM ships several per CDE; NINDS / demo / PTE-clinical don't). |
 | `cde_data_type` | One of `Number`, `Text`, `Value List`, `Date`, `Datetime`, `Time`, `File/URI/URL`, `Geolocation`, `Other`. Each source has its own type system; extractors map to this enum. |
 | `cde_definition` | Free text. |
-| `cde_source` | Display label of the originating source. |
+| `cde_source` | Display label of the originating source (e.g. `NLM NINDS Disease Epilepsy`). |
 | `cde_type` | Optional source-specific subtype. |
+| `steward_org` | Owning organization (NLM `stewardOrg.name`, e.g. `caDSR`, `NINDS`, `NHLBI`). NLM federates many stewards; this preserves the distinction even when `cde_source` collapses them. |
+| `registration_status` | NLM lifecycle marker — `Standard` / `Qualified` / `Recorded` / `Candidate` / `Retired`. Null when the source doesn't expose one. |
 | `keywords` | Optional, pipe-joined. |
 | `preferred_question_text` | The question as it would appear on a form. |
-| `pv_uri`, `pv_codes`, `pv_labels`, `pv_definitions`, `pv_code_systems`, `pv_concept_identifiers`, `pv_terminology_sources` | Permissible-value columns. Each is pipe-joined (`|`) so all PV columns share a positional alignment. |
-| `unit_of_measure` | Optional. |
+| `pv_codes`, `pv_labels`, `pv_definitions`, `pv_code_systems`, `pv_concept_identifiers`, `pv_terminology_sources` | Permissible-value columns. Each is pipe-joined (`|`) so all PV columns share a positional alignment. |
+| `unit_of_measure` | NLM `valueDomain.uom`. |
+| **`min_value`, `max_value`** | Numeric value-domain bounds. CDE-intrinsic — they don't vary per disease classification. *Moved from `cde_classification` in 2026-04.* |
+| **`cde_origin`** | `COLLECTED` / `CALCULATED` / `STANDALONE` etc. CDE-intrinsic. *Moved from `cde_classification` in 2026-04.* |
+| **`population`** | `Adult`, `Pediatric`, or `Adult;Pediatric`. CDE-intrinsic. *Moved from `cde_classification` in 2026-04.* For NLM rows, derived from `classification[]` paths named `Population`. |
+| **`cdisc_domain`, `cdisc_variable_name`, `cdisc_variable_label`** | CDISC SDTM mapping. CDE-intrinsic. *Moved from `cde_classification` in 2026-04.* |
 | `references` | Free text or URL list. |
 | `nlm_identifier` | The source's stable per-CDE identifier (NINDS uses its catalog `cdeId`, NLM uses tinyId, PTE Clinical uses NINDS catalog ID). One of the canonical-key inputs. |
 | `dec_identifier` | Pipe-joined caDSR Data Element Concept IDs (or other terminology IDs) when the source provides them. Drives the global concept registry. |
@@ -93,19 +100,16 @@ row per (cdeId × crfId), so a CDE that appears on three CRFs gets three
 rows. NT-PRECEDS demo emits one row per (cdeId × bundle × disease).
 
 The disease columns are a fixed set of yes/no flags + per-disease tier
-columns:
+columns. **CDE-intrinsic fields (numeric range, CDISC mapping, cde_origin,
+population) live on `cde`, not here** — those don't vary per-disease.
 
 | Field | Notes |
 | --- | --- |
 | `variable_name` | Required. Stable identifier; downstream views trust this is unique within a source. |
 | `version_name`, `version_date` | Source-attributed version metadata. |
-| `cde_origin` | `COLLECTED`, `STANDALONE`, `CALCULATED`, etc. Free-form across sources. |
-| `min_value`, `max_value` | Optional numeric bounds. |
 | `notes`, `additional_instructions` | Free text. |
-| `cdisc_domain`, `cdisc_variable_name`, `cdisc_variable_label` | CDISC SDTM mapping. |
 | `disease_<scope>` | One of `Y` / `N`. Scopes today: `agnostic`, `neurotrauma`, `tbi`, `pte`, `sci`, `epilepsy`. |
 | `classification_<scope>` | `Core` / `Recommended` / `Supplemental` / `Not Applicable` / `null`. Per-disease tier. |
-| `population` | E.g. `Adult`, `Adult;Pediatric`. |
 | `domain`, `subdomain`, `category` | Hierarchical taxonomy. The dashboard joins these into a single `cde_path` for tree rendering. |
 
 Each classification row is linked to its `cde` via a `CLASSIFIES` row in
@@ -122,6 +126,7 @@ NINDS and NLM organize CDEs by CRF instead. Bundles represent CDEs that
 | `bundle_name` | Required. |
 | `display_name`, `description` | Optional. |
 | `domain`, `subdomain`, `category` | Hierarchical taxonomy. |
+| `working_group` | Authoring group (NT-PRECEDS only). |
 
 Bundle ↔ CDE membership is expressed as `PART_OF` relationships with the CDE
 as `source_record_id` and the bundle as `target_record_id`.
@@ -158,7 +163,6 @@ source via a `SOURCED_FROM` relationship.
 | `source_key` | URL-safe key, e.g. `nt-preceds-demo-v1`, `ninds-epilepsy`, `nlm-ninds-disease-epilepsy`, `pte-clinical`. Used in URLs and DuckDB file IDs. |
 | `label` | Display label, e.g. `NINDS Epilepsy CDEs`. |
 | `study_type` | `Clinical`, `Preclinical`, or null (= both). Stamped onto every row in every model of this source by `prepare-data.mjs`. |
-| `workgroup`, `extraction_date`, `format_tier`, `etl_version`, `notes` | Operational metadata. |
 
 ### `relationships.csv`
 

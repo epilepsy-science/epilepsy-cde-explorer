@@ -117,14 +117,16 @@ function mapDataType(dt) {
  * population. NLM nests these under (steward → Disease → <name> → {Classification, Domain, Population}).
  */
 function extractClassification(classifications, focusDisease) {
-  const out = { domain: null, subdomain: null, category: null, tier: null, population: null, disease: null };
+  const out = { domain: null, subdomain: null, category: null, tier: null, populations: new Set(), disease: null };
   if (!Array.isArray(classifications)) return out;
   // Each classification[] entry is rooted at a steward org with `elements[]`.
+  // Population can appear as a top-level sibling AND nested under
+  // Disease > <name> > Population. NINDS Disease/Epilepsy CDEs typically
+  // emit BOTH Adult and Pediatric as parallel paths; we collect every one.
   for (const root of classifications) {
     for (const top of root.elements ?? []) {
       // top.name is e.g. 'Disease', 'Domain', 'Population'.
       if (top.name === 'Disease') {
-        // Disease → <name> → {Classification, Domain, ...}
         for (const dis of top.elements ?? []) {
           if (focusDisease && dis.name?.toLowerCase() !== focusDisease.toLowerCase()) continue;
           out.disease = dis.name;
@@ -138,8 +140,8 @@ function extractClassification(classifications, focusDisease) {
                 const sd = d.elements?.[0];
                 if (sd) out.subdomain = sd.name;
               }
-            } else if (sub.name === 'Population' && sub.elements?.[0]?.name) {
-              out.population = sub.elements[0].name;
+            } else if (sub.name === 'Population') {
+              for (const p of sub.elements ?? []) if (p.name) out.populations.add(p.name);
             }
           }
         }
@@ -150,8 +152,8 @@ function extractClassification(classifications, focusDisease) {
           const sd = d.elements?.[0];
           if (sd) out.subdomain = sd.name;
         }
-      } else if (top.name === 'Population' && !out.population) {
-        out.population = top.elements?.[0]?.name ?? null;
+      } else if (top.name === 'Population') {
+        for (const p of top.elements ?? []) if (p.name) out.populations.add(p.name);
       }
     }
   }
@@ -222,7 +224,7 @@ async function fetchAll(endpoint, key) {
 
 // ── Transform ────────────────────────────────────────────────────────────────
 
-function buildCdeRecords(cdes) {
+function buildCdeRecords(cdes, focusDisease) {
   const records = [];
   const tinyIdToUuid = new Map();
   const cdeIdToUuid = new Map(); // org code (e.g. C13053) → uuid
@@ -230,7 +232,8 @@ function buildCdeRecords(cdes) {
   for (const c of cdes) {
     const tinyId = c.tinyId;
     if (!tinyId) continue;
-    const designation = c.designations?.[0]?.designation;
+    const designations = c.designations ?? [];
+    const designation = designations[0]?.designation;
     const definition = c.definitions?.[0]?.definition;
     if (!designation) continue;
 
@@ -249,14 +252,52 @@ function buildCdeRecords(cdes) {
     const dec_identifier = pipe(decConcepts.map((d) => d.originId || d.name));
     const dec_terminology_source = pipe(decConcepts.map((d) => d.origin));
     // The concept's human-readable preferred name (e.g. "Address", "Age").
-    // NLM ships this on every concept entry, but we used to drop it. Capture
-    // it now so prepare-data.mjs can populate concept.preferred_label without
-    // a separate terminology-service round-trip.
     const dec_name = pipe(decConcepts.map((d) => d.name || ''));
 
+    // Permissible values: NLM ships rich per-PV metadata that we used to drop
+    // entirely. Now we capture the full constellation: label, code (a stable
+    // value-meaning code distinct from the user-facing label), definition,
+    // and the per-PV concept mapping (codeSystemName + conceptId + conceptSource).
     const pvs = c.valueDomain?.permissibleValues ?? [];
     const pv_labels = pipe(pvs.map((p) => p.valueMeaningName || p.permissibleValue));
+    const pv_codes = pipe(pvs.map((p) => p.valueMeaningCode || p.permissibleValue || ''));
     const pv_definitions = pipe(pvs.map((p) => p.valueMeaningDefinition || ''));
+    const pv_code_systems = pipe(pvs.map((p) => p.codeSystemName || ''));
+    const pv_concept_identifiers = pipe(pvs.map((p) => p.conceptId || ''));
+    const pv_terminology_sources = pipe(pvs.map((p) => p.conceptSource || ''));
+
+    // Numeric constraints — datatypeNumber.{minValue,maxValue}.
+    const dtn = c.valueDomain?.datatypeNumber;
+    const min_value = dtn?.minValue != null ? String(dtn.minValue) : null;
+    const max_value = dtn?.maxValue != null ? String(dtn.maxValue) : null;
+
+    // Unit of measure ships on the value domain.
+    const unit_of_measure = nullIfEmpty(c.valueDomain?.uom);
+
+    // Keywords land in NLM's properties bag as { key:'Keyword', value:'…' }.
+    const keywords = pipe(
+      (c.properties ?? [])
+        .filter((p) => (p.key || '').toLowerCase() === 'keyword')
+        .map((p) => p.value || ''),
+    );
+
+    // Aliases — every designation past the first.
+    const aliases = pipe(designations.slice(1).map((d) => d.designation || ''));
+
+    // Lifecycle marker (Standard / Qualified / Recorded / Candidate / Retired).
+    const registration_status = nullIfEmpty(c.registrationState?.registrationStatus);
+
+    // Owning organization. NLM federates many stewards (caDSR, NINDS, NHLBI,
+    // CTEP, NIDA, …); steward_org keeps that distinction even though our
+    // top-level cde_source collapses them all to "NLM …".
+    const steward_org = nullIfEmpty(c.stewardOrg?.name);
+
+    // Population (Adult / Pediatric / both) — collected from the
+    // classification[] tree's Population nodes by extractClassification().
+    const meta = extractClassification(c.classification, focusDisease);
+    const population = meta.populations.size
+      ? [...meta.populations].sort().join(';')
+      : null;
 
     const refs = (c.referenceDocuments ?? [])
       .map((r) => r.document)
@@ -271,20 +312,37 @@ function buildCdeRecords(cdes) {
       id: uuid,
       data: {
         cde_name: designation,
+        aliases,
         cde_data_type: mapDataType(c.valueDomain?.datatype),
         cde_definition: nullIfEmpty(definition) || designation,
         cde_source: SOURCE_LABEL,
         cde_type: null,
-        keywords: null,
+        steward_org,
+        registration_status,
+        keywords,
         preferred_question_text: null,
-        pv_uri: null,
-        pv_codes: null,
+        pv_codes,
         pv_labels,
         pv_definitions,
-        pv_code_systems: null,
-        pv_concept_identifiers: null,
-        pv_terminology_sources: null,
-        unit_of_measure: null,
+        pv_code_systems,
+        pv_concept_identifiers,
+        pv_terminology_sources,
+        unit_of_measure,
+        // Numeric value-domain bounds (CDE-intrinsic, not per-classification).
+        min_value,
+        max_value,
+        // Whether this CDE is observed vs derived. NLM ships everything as
+        // 'COLLECTED'; we keep the field on cde so other sources can vary.
+        cde_origin: 'COLLECTED',
+        // Population scope (CDE-intrinsic). Pipe-joined with ';' to match
+        // NINDS's "Adult;Pediatric" convention.
+        population,
+        // CDISC mapping is a CDE identity, not a per-classification thing.
+        // NLM doesn't expose CDISC fields directly, but PTE-clinical and
+        // NINDS sometimes do; left null on NLM rows.
+        cdisc_domain: null,
+        cdisc_variable_name: null,
+        cdisc_variable_label: null,
         references: nullIfEmpty(refs),
         // Use the org's code (e.g., NINDS C13053) so canonical_key joins across
         // sources extracted via different paths. Falls back to NLM tinyId.
@@ -319,18 +377,15 @@ function buildClassifications(cdes, tinyIdToUuid) {
     const variableName = orgCode ?? c.tinyId;
     const versionDate = (c.updated || c.imported || `${TODAY}T00:00:00`).slice(0, 10);
 
+    // Classification rows now describe ONLY the disease scope + tier + the
+    // (CDE × disease) hierarchical placement. CDE-intrinsic fields
+    // (min/max, cdisc_*, cde_origin, population) live on cde directly.
     const data = {
       variable_name: variableName,
       version_name: `${SOURCE_LABEL} v${c.version ?? '1.0'}`,
       version_date: versionDate,
-      cde_origin: 'COLLECTED',
-      min_value: null,
-      max_value: null,
       notes: null,
       additional_instructions: null,
-      cdisc_domain: null,
-      cdisc_variable_name: null,
-      cdisc_variable_label: null,
       // Disease columns: leave all 'N' by default; the focus disease is set
       // explicitly. Existing dashboard view supports a small set hardcoded; new
       // disease columns get auto-rendered when the lens is set up for them.
@@ -344,7 +399,6 @@ function buildClassifications(cdes, tinyIdToUuid) {
       classification_pte: null,
       disease_sci: 'N',
       classification_sci: null,
-      population: nullIfEmpty(meta.population),
       domain: nullIfEmpty(meta.domain),
       subdomain: nullIfEmpty(meta.subdomain),
       category: nullIfEmpty(meta.category) ?? null,
@@ -472,7 +526,9 @@ async function main() {
   const forms = await fetchAll('/server/form/search', 'forms');
   console.log(`  → ${forms.length} CRFs`);
 
-  const { records: cdeRecords, tinyIdToUuid, cdeIdToUuid } = buildCdeRecords(cdes);
+  const focusDisease =
+    CLASSIFICATION[0] === 'Disease' && CLASSIFICATION[1] ? CLASSIFICATION[1] : null;
+  const { records: cdeRecords, tinyIdToUuid, cdeIdToUuid } = buildCdeRecords(cdes, focusDisease);
   const { records: clsRecords, classifies } = buildClassifications(cdes, tinyIdToUuid);
   const crfRecords = buildCrfRecords(forms, cdeIdToUuid);
 
@@ -482,19 +538,6 @@ async function main() {
       source_key: SOURCE_KEY,
       label: SOURCE_LABEL,
       study_type: STUDY_TYPE,
-      workgroup: ORG,
-      extraction_date: TODAY,
-      file_date: TODAY,
-      file_name: null,
-      sheet_name: null,
-      folder_path: null,
-      format_tier: 'NLM CDE Repository (cde.nlm.nih.gov/server/de/search)',
-      etl_version: 'fetch-nlm-cde-1.0',
-      cde_count: cdeRecords.length,
-      bundle_count: 0,
-      classification_count: clsRecords.length,
-      review_count: null,
-      notes: `Fetched via the unofficial JSON API behind the NLM CDE Repository SPA for org=${ORG}${CLASSIFICATION.length ? `, classification=[${CLASSIFICATION.join(', ')}]` : ''}.`,
     },
   };
 

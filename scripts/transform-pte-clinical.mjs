@@ -195,24 +195,6 @@ function build(rows) {
       source_key: SOURCE_KEY,
       label: SOURCE_LABEL,
       study_type: STUDY_TYPE,
-      workgroup: 'NINDS',
-      extraction_date: TODAY,
-      file_date: TODAY,
-      file_name: null,
-      sheet_name: null,
-      folder_path: 'data/pte-clinical/',
-      format_tier: 'Curated CSV',
-      etl_version: 'pte-clinical-transform-1.0',
-      cde_count: 0, // filled below
-      bundle_count: 0,
-      classification_count: rows.length,
-      review_count: null,
-      notes:
-        'Curated PTE Clinical CDE list, transformed from CSV exports under ' +
-        'data/pte-clinical/ via scripts/transform-pte-clinical.mjs. CDEs are ' +
-        'NINDS-attributed but disease-scoped to PTE; PTE-specific overlay ' +
-        'columns (pte_domain, pte_class_notes, …) take precedence over the ' +
-        'NINDS base values when populated.',
     },
   };
 
@@ -231,14 +213,18 @@ function build(rows) {
       id: uuid,
       data: {
         cde_name: nullIfEmpty(r.cde_name),
+        aliases: null,
         cde_data_type: mapDataType(r.data_type, r.input_restrictions),
         cde_definition: nullIfEmpty(r.cde_definition) || nullIfEmpty(r.cde_name),
         cde_source: SOURCE_LABEL,
         cde_type: nullIfEmpty(r.cde_type),
+        // PTE-clinical CDEs originate from NINDS curation per the cde_source
+        // column in the CSV. Falls back to the file-level steward.
+        steward_org: nullIfEmpty(r.cde_source) || 'NINDS',
+        registration_status: null,
         keywords: null,
         preferred_question_text:
           nullIfEmpty(r.short_description) || nullIfEmpty(r.question_text),
-        pv_uri: null,
         pv_codes: pipe(r.pv_codes),
         pv_labels: pipe(r.pv_labels),
         pv_definitions: pipe(r.pv_definitions),
@@ -246,6 +232,18 @@ function build(rows) {
         pv_concept_identifiers: null,
         pv_terminology_sources: null,
         unit_of_measure: nullIfEmpty(r.measurement_type),
+        // CDE-intrinsic numeric range (moved from cde_classification).
+        min_value: nullIfEmpty(r.min_value),
+        max_value: nullIfEmpty(r.max_value),
+        // PTE-overlay column wins when populated; otherwise default to
+        // COLLECTED (the most common origin for these rows).
+        cde_origin:
+          nullIfEmpty(r.cde_origin)?.toUpperCase() ||
+          (r.standalone ? 'STANDALONE' : 'COLLECTED'),
+        population: nullIfEmpty(r.population),
+        cdisc_domain: null,
+        cdisc_variable_name: nullIfEmpty(r.external_id_cdisc),
+        cdisc_variable_label: null,
         references: nullIfEmpty(r.disease_specific_reference),
         nlm_identifier: nullIfEmpty(r.cde_id),
         // External_id_cadsr is the closest match to caDSR DEC identifier.
@@ -259,7 +257,6 @@ function build(rows) {
       },
     });
   }
-  provenance.data.cde_count = cdeRecords.length;
 
   // Classification records — one per (CDE × CRF) pairing, preserving the
   // structure of the input CSVs. PTE-specific overlays win over the base
@@ -281,19 +278,11 @@ function build(rows) {
           ? `${SOURCE_LABEL} · ${r.crf_name}`
           : SOURCE_LABEL,
         version_date: nullIfEmpty(r.version_date) || TODAY,
-        cde_origin:
-          nullIfEmpty(r.cde_origin)?.toUpperCase() ||
-          (r.standalone ? 'STANDALONE' : 'COLLECTED'),
-        min_value: nullIfEmpty(r.min_value),
-        max_value: nullIfEmpty(r.max_value),
         notes:
           nullIfEmpty(r.pte_class_notes) || nullIfEmpty(r.specific_instructions_core),
         additional_instructions:
           nullIfEmpty(r.pte_specific_instructions) ||
           nullIfEmpty(r.disease_specific_instructions),
-        cdisc_domain: null,
-        cdisc_variable_name: nullIfEmpty(r.external_id_cdisc),
-        cdisc_variable_label: null,
         // Disease scope: PTE-only — TBI is implied by the CRF subject matter
         // but the explicit tag in the CSVs is "Clinical PTE", so we honor that
         // and let curators flip TBI on per-row if/when needed.
@@ -309,7 +298,6 @@ function build(rows) {
         classification_pte: ptePte || generic || null,
         disease_sci: 'N',
         classification_sci: null,
-        population: nullIfEmpty(r.population),
         // PTE overlays take priority where set; fall back to NINDS-base
         // domain/subdomain. Category = CRF name, matching the existing pattern.
         domain: nullIfEmpty(r.pte_domain) || nullIfEmpty(r.domain),

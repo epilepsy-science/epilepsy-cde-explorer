@@ -2,6 +2,6 @@
   "name": "NINDS Epilepsy CDE Dataset",
   "description": "Epilepsy CDEs extracted from the NINDS CDE Catalog (diseaseId=EPILEPSY).",
   "version": 1,
-  "datePublished": "2026-04-24",
+  "datePublished": "2026-04-28",
   "pennsieveSchemaVersion": "5.0"
 }

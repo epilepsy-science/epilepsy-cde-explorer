@@ -30,21 +30,37 @@ function id(s) {
 
 const TODAY = '2026-04-22';
 
-/** Build a classification record from a compact spec. */
-function classif({ variable, core = [], rec = [], suppl = [], na = [], notes = null, cdisc = null, minv = null, maxv = null, origin = 'COLLECTED', version = 'NT-PRECEDS Demo v1.0' }) {
+/** Build a classification record from a compact spec.
+ *
+ * CDE-intrinsic fields (`minv`, `maxv`, `cdisc`, `origin`, `population`)
+ * conceptually belong on the cde record, not on classification. Existing
+ * call sites in this file pass them to `classif()` for terseness; we
+ * accept and stash them on a private `_cde_intrinsic` key so the emit step
+ * can merge them onto `def.data` instead. The classification record itself
+ * never sees these fields. */
+function classif({
+  variable,
+  core = [],
+  rec = [],
+  suppl = [],
+  na = [],
+  notes = null,
+  version = 'NT-PRECEDS Demo v1.0',
+  // CDE-intrinsic — collected here for ergonomic call sites, applied to
+  // the cde record at emit time.
+  minv,
+  maxv,
+  cdisc,
+  origin,
+  population,
+}) {
   const diseases = ['agnostic', 'neurotrauma', 'tbi', 'pte', 'sci'];
   const out = {
     variable_name: variable,
     version_name: version,
     version_date: '2026-04-01',
-    cde_origin: origin,
-    min_value: minv,
-    max_value: maxv,
     notes,
     additional_instructions: null,
-    cdisc_domain: cdisc?.domain ?? null,
-    cdisc_variable_name: cdisc?.var ?? null,
-    cdisc_variable_label: cdisc?.label ?? null,
   };
   for (const d of diseases) {
     const y =
@@ -60,26 +76,47 @@ function classif({ variable, core = [], rec = [], suppl = [], na = [], notes = n
             ? 'Not Applicable'
             : null;
   }
+  const _cde_intrinsic = {};
+  if (minv !== undefined) _cde_intrinsic.min_value = minv;
+  if (maxv !== undefined) _cde_intrinsic.max_value = maxv;
+  if (cdisc) {
+    _cde_intrinsic.cdisc_domain = cdisc.domain ?? null;
+    _cde_intrinsic.cdisc_variable_name = cdisc.var ?? null;
+    _cde_intrinsic.cdisc_variable_label = cdisc.label ?? null;
+  }
+  if (origin) _cde_intrinsic.cde_origin = origin;
+  if (population !== undefined) _cde_intrinsic.population = population;
+  out._cde_intrinsic = _cde_intrinsic;
   return out;
 }
 
-/** Build a CDE data blob from a compact spec. */
+/** Build a CDE data blob from a compact spec. CDE-intrinsic fields that
+ *  used to live on classification (numeric range, cdisc_*, cde_origin,
+ *  population) now sit here. */
 function cde({
   name,
+  aliases = null,
   dtype,
   definition,
   source = 'NT-PRECEDS Demo',
+  stewardOrg = 'NT-PRECEDS',
+  registrationStatus = null,
   question = null,
   keywords = null,
   unit = null,
-  pvs = null, // Array<{ code?, label, def?, codeSystem? }>
-  pvUri = null,
+  pvs = null, // Array<{ code?, label, def?, codeSystem?, conceptId?, conceptSource? }>
   refs = null,
   nlmId = null,
   decId = null,
   decSource = null,
+  decName = null,
   cdeType = null,
   otherIds = null,
+  minv = null,
+  maxv = null,
+  origin = 'COLLECTED',
+  population = null,
+  cdisc = null,
 }) {
   let pv_labels = null,
     pv_codes = null,
@@ -98,16 +135,24 @@ function cde({
     pv_code_systems = pvs.some((p) => p.codeSystem)
       ? pvs.map((p) => p.codeSystem ?? '').join('|')
       : null;
+    pv_concept_identifiers = pvs.some((p) => p.conceptId)
+      ? pvs.map((p) => p.conceptId ?? '').join('|')
+      : null;
+    pv_terminology_sources = pvs.some((p) => p.conceptSource)
+      ? pvs.map((p) => p.conceptSource ?? '').join('|')
+      : null;
   }
   return {
     cde_name: name,
+    aliases,
     cde_data_type: dtype,
     cde_definition: definition,
     cde_source: source,
     cde_type: cdeType,
+    steward_org: stewardOrg,
+    registration_status: registrationStatus,
     keywords,
     preferred_question_text: question,
-    pv_uri: pvUri,
     pv_codes,
     pv_labels,
     pv_definitions,
@@ -115,10 +160,18 @@ function cde({
     pv_concept_identifiers,
     pv_terminology_sources,
     unit_of_measure: unit,
+    min_value: minv,
+    max_value: maxv,
+    cde_origin: origin,
+    population,
+    cdisc_domain: cdisc?.domain ?? null,
+    cdisc_variable_name: cdisc?.var ?? null,
+    cdisc_variable_label: cdisc?.label ?? null,
     references: refs,
     nlm_identifier: nlmId,
     dec_identifier: decId,
     dec_terminology_source: decSource,
+    dec_name: decName,
     other_identifiers: otherIds,
   };
 }
@@ -1533,24 +1586,16 @@ const CRFS = [
 // Provenance
 // ────────────────────────────────────────────────────────────────────────────
 
+// Provenance has been slimmed: only fields the dashboard actually reads
+// remain. The previous 13 metadata fields (workgroup, extraction_date,
+// file_*, sheet_name, folder_path, format_tier, etl_version, cde_count,
+// bundle_count, classification_count, review_count, notes) were never
+// rendered or queried, so they're omitted across all extractors now.
 const PROVENANCE = [
   {
     source_key: 'nt-preceds-demo-v1',
     label: 'NT-PRECEDS Demo CDE Set v1.0',
     study_type: 'Preclinical',
-    workgroup: 'NT-PRECEDS Demo',
-    extraction_date: TODAY,
-    file_date: TODAY,
-    file_name: 'demo-dataset.json',
-    sheet_name: null,
-    folder_path: 'Demo',
-    format_tier: 'Tier 1 - NLM 48-column',
-    etl_version: 'demo-1.0',
-    cde_count: Object.keys(CDES).length,
-    bundle_count: Object.keys(BUNDLES).length,
-    classification_count: Object.keys(CDES).length,
-    review_count: null,
-    notes: 'Hand-curated preclinical neurotrauma demonstration set for the CDE Review Dashboard prototype.',
   },
 ];
 
@@ -1625,26 +1670,35 @@ function writeJsonl(modelName, records, schema) {
 function main() {
   mkdirSync(resolve(OUT, 'metadata'), { recursive: true });
 
-  // CDE records
-  const cdeRecords = Object.entries(CDES).map(([key, def]) => ({
-    id: id(`cde/${key}`),
-    data: def.data,
-  }));
+  // CDE records — merge any CDE-intrinsic overrides that call sites stashed
+  // on `def.cls._cde_intrinsic` (numeric range, cdisc_*, cde_origin, etc.).
+  const cdeRecords = Object.entries(CDES).map(([key, def]) => {
+    const intrinsic = def.cls?._cde_intrinsic ?? {};
+    return {
+      id: id(`cde/${key}`),
+      data: { ...def.data, ...intrinsic },
+    };
+  });
 
   // Classification records — also carry the CDE's own domain/subdomain/category
   // so unbundled CDEs can be placed in the taxonomy too (bundles don't own the
-  // taxonomy; they just group CDEs that share some of it).
-  const classificationRecords = Object.entries(CDES).map(([key, def]) => ({
-    id: id(`cls/${key}`),
-    data: {
-      ...def.cls,
-      domain: def.domain ?? null,
-      subdomain: def.subdomain ?? null,
-      category: def.category ?? null,
-    },
-  }));
+  // taxonomy; they just group CDEs that share some of it). Strip the
+  // `_cde_intrinsic` private key before emitting.
+  const classificationRecords = Object.entries(CDES).map(([key, def]) => {
+    const { _cde_intrinsic: _, ...clsClean } = def.cls;
+    return {
+      id: id(`cls/${key}`),
+      data: {
+        ...clsClean,
+        domain: def.domain ?? null,
+        subdomain: def.subdomain ?? null,
+        category: def.category ?? null,
+      },
+    };
+  });
 
-  // Bundle records
+  // Bundle records — `disease_scope` and `source` were defined here but
+  // never read by the dashboard or extractors, so they're omitted now.
   const bundleRecords = Object.entries(BUNDLES).map(([key, def]) => ({
     id: id(`bundle/${key}`),
     data: {
@@ -1655,8 +1709,6 @@ function main() {
       subdomain: def.subdomain,
       category: def.category,
       working_group: def.working_group,
-      disease_scope: def.disease_scope,
-      source: def.source,
     },
   }));
 
