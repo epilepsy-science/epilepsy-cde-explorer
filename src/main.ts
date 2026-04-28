@@ -4,7 +4,7 @@ import 'element-plus/dist/index.css';
 import * as ElementPlusIconsVue from '@element-plus/icons-vue';
 import App from './App.vue';
 import { router } from './router';
-import { installAnalytics, trackPageView } from './api/analytics';
+import { trackPageView } from './api/analytics';
 import './assets/base.scss';
 
 const app = createApp(App);
@@ -16,10 +16,10 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 app.use(ElementPlus);
 app.use(router);
 
-// Analytics — install before the first navigation fires so the first
-// page_view is captured. No-op when VITE_GA_MEASUREMENT_ID is unset, so
-// dev/preview builds don't ping production.
-installAnalytics();
+// Analytics — gtag.js is loaded by index.html before this bundle parses, so
+// window.gtag is already installed by the time the first navigation fires.
+// trackPageView is a no-op when window.gtag is undefined (dev / preview /
+// blocked-by-extension), so no guard needed here.
 router.afterEach((to) => {
   // Use route.fullPath so hash-routed views (/explore?focus=tbi, etc.)
   // register as distinct pages instead of collapsing to '/'.

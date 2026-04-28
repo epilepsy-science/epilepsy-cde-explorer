@@ -14,6 +14,32 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap"
     />
+    <!--
+      Google Analytics 4. The %VITE_GA_MEASUREMENT_ID% token is replaced at
+      build time by Vite. When the env var is unset (dev / preview), the
+      substitution leaves an empty string and the IIFE early-returns — no
+      request fires, no events sent. Custom events flow through src/api/
+      analytics.ts, which calls window.gtag set up here.
+    -->
+    <script>
+      (function () {
+        var id = '%VITE_GA_MEASUREMENT_ID%';
+        if (!id || id.indexOf('VITE_') === 0) return;
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { window.dataLayer.push(arguments); }
+        window.gtag = gtag;
+        var s = document.createElement('script');
+        s.async = true;
+        s.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(id);
+        document.head.appendChild(s);
+        gtag('js', new Date());
+        gtag('config', id, {
+          anonymize_ip: true,
+          cookie_flags: 'SameSite=None;Secure',
+          send_page_view: false,
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
