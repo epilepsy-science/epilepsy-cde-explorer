@@ -2,7 +2,7 @@
 import { computed, ref, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
-import { useDiseaseLens } from '@/composables/useDiseaseLens';
+import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
 import { useStudyType } from '@/composables/useStudyType';
 import DonutChart from './DonutChart.vue';
 
@@ -94,14 +94,11 @@ const TIER_ROWS: Array<{ key: 'Core' | 'Recommended' | 'Supplemental'; label: st
 ];
 
 // When lens = 'all', we still want a tier × domain view — fall back to the
-// best tier across all five classification columns per CDE.
-const ALL_TIER_COLS = [
-  'classification_agnostic',
-  'classification_neurotrauma',
-  'classification_tbi',
-  'classification_pte',
-  'classification_sci',
-];
+// best tier across every disease's classification column. Derived from
+// DISEASE_OPTIONS so adding a new disease there automatically extends this.
+const ALL_TIER_COLS = DISEASE_OPTIONS
+  .map((o) => classificationColumn(o.key))
+  .filter((c): c is string => c !== null);
 const ALL_TIER_LIST = `[${ALL_TIER_COLS.join(', ')}]`;
 
 function tierExpression(tierCol: string | null): string {

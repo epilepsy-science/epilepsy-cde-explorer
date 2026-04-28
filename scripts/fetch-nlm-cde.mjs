@@ -440,6 +440,10 @@ function buildCrfRecords(forms, cdeIdToUuid) {
         disease_scope: CLASSIFICATION[1] ?? null,
         estimated_duration_minutes: null,
         collection_frequency: null,
+        // NLM lifecycle marker — Standard / Qualified / Recorded / Candidate
+        // / Retired. Other sources (NINDS, demo, PTE) leave this null and the
+        // UI defaults to "Standard" for them.
+        registration_status: nullIfEmpty(f.registrationState?.registrationStatus),
         items,
       },
     });

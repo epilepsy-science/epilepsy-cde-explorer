@@ -6,13 +6,14 @@ import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
 import ClassificationPill from '@/components/ClassificationPill.vue';
 import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
 import AddToCrfButton from '@/components/AddToCrfButton.vue';
+import { DISEASE_OPTIONS } from '@/composables/useDiseaseLens';
 import type { BundleRow, CdeRow } from '@/types';
 
 const route = useRoute();
 const router = useRouter();
 const { status, query } = useDuckDB();
 
-const bundle = ref<(BundleRow & { description?: string; source?: string; disease_scope?: string }) | null>(null);
+const bundle = ref<BundleRow | null>(null);
 const cdes = ref<CdeRow[]>([]);
 const loading = ref(false);
 const selectedCde = ref<CdeRow | null>(null);
@@ -50,20 +51,19 @@ function openRow(row: CdeRow) {
   drawerOpen.value = true;
 }
 
+// Per-disease classification columns derived from DISEASE_OPTIONS so adding a
+// disease automatically participates in the bundle's tier roll-up.
+const CLASSIFICATION_COLS: Array<keyof CdeRow> = DISEASE_OPTIONS
+  .filter((o) => o.column !== null)
+  .map((o) => `classification_${o.key}` as keyof CdeRow);
+
 const classificationSummary = computed(() => {
   const tiers = ['Core', 'Recommended', 'Supplemental', 'Not Applicable'];
   const counts: Record<string, number> = {};
   for (const t of tiers) counts[t] = 0;
-  const cols: Array<keyof CdeRow> = [
-    'classification_agnostic',
-    'classification_neurotrauma',
-    'classification_tbi',
-    'classification_pte',
-    'classification_sci',
-  ];
   for (const c of cdes.value) {
     let best: string | null = null;
-    for (const col of cols) {
+    for (const col of CLASSIFICATION_COLS) {
       const v = c[col] as string | null;
       if (v === 'Core') {
         best = 'Core';

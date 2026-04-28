@@ -3,6 +3,7 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
 import { useStudyType } from '@/composables/useStudyType';
+import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
 import ClassificationPill from '@/components/ClassificationPill.vue';
 import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
@@ -16,6 +17,13 @@ const route = useRoute();
 const router = useRouter();
 const { status, query } = useDuckDB();
 const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
+const { classificationColumn } = useDiseaseLens();
+
+// Every classification_* column on cde_full, derived from DISEASE_OPTIONS so
+// adding a disease doesn't require touching this file.
+const ALL_CLASSIFICATION_COLS = DISEASE_OPTIONS
+  .map((o) => classificationColumn(o.key))
+  .filter((c): c is string => c !== null);
 
 // Vue Router types route.query values as `LocationQueryValue | LocationQueryValue[]`
 // where `LocationQueryValue = string | null`. Accept both shapes and silently
@@ -29,26 +37,36 @@ function csvParam(v: RawQueryValue): string[] {
     .flatMap((x) => x.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
-// Filters — seed from URL so drill-through links from /explore land here pre-filtered.
-const search = ref<string>(typeof route.query.q === 'string' ? route.query.q : '');
-const disease = ref<string[]>(csvParam(route.query.disease));
-const classTier = ref<string[]>(csvParam(route.query.tier));
-const bundleFilter = ref<string | null>(
-  typeof route.query.bundle === 'string' ? route.query.bundle : null,
-);
-const cdeIdFilter = ref<string | null>(
-  typeof route.query.cde === 'string' ? route.query.cde : null,
-);
-const originFilter = ref<string[]>(csvParam(route.query.origin));
-const domainFilter = ref<string | null>(
-  typeof route.query.domain === 'string' ? route.query.domain : null,
-);
-const subdomainFilter = ref<string | null>(
-  typeof route.query.subdomain === 'string' ? route.query.subdomain : null,
-);
-const categoryFilter = ref<string | null>(
-  typeof route.query.category === 'string' ? route.query.category : null,
-);
+// Filters — driven by URL so drill-through links from /explore land here
+// pre-filtered, and so navigating to /cdes again with new params (e.g. clicking
+// another heatmap cell) replaces the active filter set instead of layering on
+// top of stale state. The watcher below resyncs whenever route.query changes.
+const search = ref<string>('');
+const disease = ref<string[]>([]);
+const classTier = ref<string[]>([]);
+const bundleFilter = ref<string | null>(null);
+const cdeIdFilter = ref<string | null>(null);
+const originFilter = ref<string[]>([]);
+const domainFilter = ref<string | null>(null);
+const subdomainFilter = ref<string | null>(null);
+const categoryFilter = ref<string | null>(null);
+
+function strParam(v: RawQueryValue): string | null {
+  return typeof v === 'string' && v.length > 0 ? v : null;
+}
+
+function syncFiltersFromQuery() {
+  search.value = strParam(route.query.q) ?? '';
+  disease.value = csvParam(route.query.disease);
+  classTier.value = csvParam(route.query.tier);
+  bundleFilter.value = strParam(route.query.bundle);
+  cdeIdFilter.value = strParam(route.query.cde);
+  originFilter.value = csvParam(route.query.origin);
+  domainFilter.value = strParam(route.query.domain);
+  subdomainFilter.value = strParam(route.query.subdomain);
+  categoryFilter.value = strParam(route.query.category);
+}
+syncFiltersFromQuery();
 const rows = ref<CdeRow[]>([]);
 const total = ref(0);
 const loading = ref(false);
@@ -113,37 +131,18 @@ function buildWhere(): { where: string; params: unknown[] } {
   }
   if (disease.value.length) {
     const diseaseClauses = disease.value.map((d) => {
-      switch (d) {
-        case 'tbi':
-          return `disease_tbi = 'Y'`;
-        case 'pte':
-          return `disease_pte = 'Y'`;
-        case 'sci':
-          return `disease_sci = 'Y'`;
-        case 'agnostic':
-          return `disease_agnostic = 'Y'`;
-        case 'neurotrauma':
-          return `disease_neurotrauma = 'Y'`;
-        default:
-          return '1=0';
-      }
+      const opt = DISEASE_OPTIONS.find((o) => o.key === d);
+      return opt?.column ? `${opt.column} = 'Y'` : '1=0';
     });
     clauses.push(`(${diseaseClauses.join(' OR ')})`);
   }
   if (classTier.value.length) {
     // A CDE matches if any of its classification_* columns is in the selected tier set.
-    const cols = [
-      'classification_agnostic',
-      'classification_neurotrauma',
-      'classification_tbi',
-      'classification_pte',
-      'classification_sci',
-    ];
     const placeholders = classTier.value.map(() => '?').join(',');
     clauses.push(
-      `(${cols.map((c) => `${c} IN (${placeholders})`).join(' OR ')})`,
+      `(${ALL_CLASSIFICATION_COLS.map((c) => `${c} IN (${placeholders})`).join(' OR ')})`,
     );
-    for (const _ of cols) params.push(...classTier.value);
+    for (const _ of ALL_CLASSIFICATION_COLS) params.push(...classTier.value);
   }
   if (bundleFilter.value) {
     clauses.push(`bundle_id = ?`);
@@ -514,6 +513,12 @@ watch(
   },
 );
 
+// Resync filters when the URL query changes (heatmap drill-through, in-app
+// links, browser back/forward). The component instance persists across
+// /explore → /cdes navigations, so without this the new query params would be
+// ignored and the page would render with whatever filters were last set.
+watch(() => route.query, syncFiltersFromQuery);
+
 function isBundleRow(row: TreeRow): row is BundleHeader {
   return (row as BundleHeader).kind === 'bundle';
 }
@@ -588,27 +593,36 @@ const bundleFilterLabel = computed(() => {
   return bundleOptions.value.find((b) => b.id === bundleFilter.value)?.label ?? null;
 });
 
+function clearQueryParam(key: string) {
+  const q = { ...route.query };
+  delete q[key];
+  router.replace({ query: q });
+}
+
 function clearBundleFilter() {
   bundleFilter.value = null;
-  const q = { ...route.query };
-  delete q.bundle;
-  router.replace({ query: q });
+  clearQueryParam('bundle');
 }
-
 function clearDomainFilter() {
   domainFilter.value = null;
-  const q = { ...route.query };
-  delete q.domain;
-  router.replace({ query: q });
+  clearQueryParam('domain');
+}
+function clearSubdomainFilter() {
+  subdomainFilter.value = null;
+  clearQueryParam('subdomain');
+}
+function clearCategoryFilter() {
+  categoryFilter.value = null;
+  clearQueryParam('category');
+}
+function clearCdeIdFilter() {
+  cdeIdFilter.value = null;
+  clearQueryParam('cde');
 }
 
-const diseaseOptions = [
-  { value: 'tbi', label: 'TBI' },
-  { value: 'pte', label: 'PTE' },
-  { value: 'sci', label: 'SCI' },
-  { value: 'neurotrauma', label: 'Neurotrauma' },
-  { value: 'agnostic', label: 'Agnostic' },
-];
+const diseaseOptions = DISEASE_OPTIONS
+  .filter((o) => o.column !== null)
+  .map((o) => ({ value: o.key, label: o.label }));
 
 // Origin options — loaded dynamically from the data so new sources pick up
 // automatically without a code change.
@@ -671,6 +685,24 @@ watch(originFilter, (selected) => {
             · domain:
             <el-tag size="small" closable type="info" @close="clearDomainFilter">
               {{ domainFilter }}
+            </el-tag>
+          </template>
+          <template v-if="subdomainFilter">
+            · subdomain:
+            <el-tag size="small" closable type="info" @close="clearSubdomainFilter">
+              {{ subdomainFilter }}
+            </el-tag>
+          </template>
+          <template v-if="categoryFilter">
+            · category:
+            <el-tag size="small" closable type="info" @close="clearCategoryFilter">
+              {{ categoryFilter }}
+            </el-tag>
+          </template>
+          <template v-if="cdeIdFilter">
+            · CDE:
+            <el-tag size="small" closable type="info" @close="clearCdeIdFilter">
+              {{ cdeIdFilter }}
             </el-tag>
           </template>
         </div>

@@ -3,7 +3,7 @@ import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
 import { useCrfStore } from '@/composables/useCrfStore';
-import type { CrfRecord } from '@/types';
+import { crfBadge, type CrfRecord } from '@/types';
 
 const router = useRouter();
 const { status, query } = useDuckDB();
@@ -132,7 +132,12 @@ onMounted(() => {
   ensureCrfsLoaded();
 });
 
-const featuredCrfs = computed<CrfRecord[]>(() => crfs.value.slice(0, 8));
+// Skip external-only CRFs (NINDS NOC stubs and the like — empty items list,
+// just a redirect) so the home page features actual collectable forms instead
+// of an alphabetical run of "External instrument" cards.
+const featuredCrfs = computed<CrfRecord[]>(() =>
+  crfs.value.filter((c) => c.items.length > 0).slice(0, 8),
+);
 
 function crfCounts(c: CrfRecord) {
   let sections = 0;
@@ -441,9 +446,9 @@ function pctOfTotal(n: number) {
           <header class="crf-card__head">
             <span
               class="crf-card__source"
-              :class="c.source === 'seeded' ? 'crf-card__source--seeded' : 'crf-card__source--custom'"
+              :class="`crf-card__source--${crfBadge(c).kind}`"
             >
-              {{ c.source === 'seeded' ? 'Seeded' : 'Custom' }}
+              {{ crfBadge(c).label }}
             </span>
             <span v-if="c.disease_scope" class="crf-card__scope">{{ c.disease_scope }}</span>
           </header>
@@ -981,10 +986,26 @@ function pctOfTotal(n: number) {
     text-transform: uppercase;
     border-radius: 2px;
 
-    &--seeded {
+    &--standard,
+    &--qualified {
+      background: #e6f4ea;
+      color: #1f7a3a;
+      border-left: 2px solid #2d6b3a;
+    }
+    &--recorded {
       background: #eaf1fa;
       color: #1f528f;
       border-left: 2px solid #1f528f;
+    }
+    &--candidate {
+      background: #fff7ec;
+      color: #b45309;
+      border-left: 2px solid #b45309;
+    }
+    &--retired {
+      background: #fdecec;
+      color: #a02828;
+      border-left: 2px solid #a02828;
     }
     &--custom {
       background: #fdf3df;

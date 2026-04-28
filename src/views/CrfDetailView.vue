@@ -5,13 +5,19 @@ import { useCrfStore } from '@/composables/useCrfStore';
 import { useDuckDB } from '@/composables/useDuckDB';
 import ClassificationPill from '@/components/ClassificationPill.vue';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
-import { isActiveTier, splitPipe, type CdeRow, type CrfItem, type CrfRecord } from '@/types';
+import { CRF_BADGE_DESCRIPTIONS, crfBadge, isActiveTier, splitPipe, type CdeRow, type CrfItem, type CrfRecord } from '@/types';
 import {
   buildRedcapCsv,
   downloadRedcapCsv,
   type RedcapCdeInput,
   type RedcapBundleInput,
 } from '@/utils/redcapExport';
+import {
+  buildJsonSchema,
+  downloadJsonSchema,
+  type JsonSchemaCdeInput,
+  type JsonSchemaBundleInput,
+} from '@/utils/jsonSchemaExport';
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
 import { trackEvent } from '@/api/analytics';
 
@@ -30,6 +36,24 @@ const { query, status } = useDuckDB();
 
 const isCustom = computed(() => crf.value?.source === 'custom');
 
+// True for seeded CRFs that are *only* a pointer to an external, copyright-
+// restricted assessment instrument (NINDS NOC pattern: Beck Depression
+// Inventory, Bayley Scales, etc.). The source data has no item content
+// because it can't legally redistribute the questions — only a link to the
+// licensed publisher.
+const isExternalOnly = computed(
+  () =>
+    crf.value?.source === 'seeded' &&
+    crf.value.items.length === 0,
+);
+
+// The per-CRF NINDS NOC PDF URLs we ingested are dead post-site-migration
+// (404), so always redirect to the NINDS CRF library landing page where the
+// reviewer can look up the instrument by title. NLM-sourced empty CRFs don't
+// carry their own URL either — same fallback works.
+const NINDS_CRF_LIBRARY_URL = 'https://www.commondataelements.ninds.nih.gov/crf-library';
+const externalRedirectUrl = computed(() => NINDS_CRF_LIBRARY_URL);
+
 const crf = ref<CrfRecord | null>(null);
 const loading = ref(true);
 
@@ -44,13 +68,16 @@ interface ResolvedCde {
   unit_of_measure: string | null;
   pv_labels: string | null;
   pv_codes: string | null;
+  pv_definitions: string | null;
   min_value: number | null;
   max_value: number | null;
+  nlm_identifier: string | null;
   classification_agnostic: string | null;
   classification_neurotrauma: string | null;
   classification_tbi: string | null;
   classification_pte: string | null;
   classification_sci: string | null;
+  classification_epilepsy: string | null;
   bundle_id: string | null;
   bundle_name: string | null;
 }
@@ -126,11 +153,13 @@ async function resolveRefs() {
         if (bundles.length) {
           const idPlaceholders = bundles.map(() => '?').join(',');
           const members = await query<ResolvedCde & { _bundle_id: string }>(
-            `SELECT cde_name, variable_name, cde_data_type, cde_definition,
-                    preferred_question_text, unit_of_measure, pv_labels, pv_codes,
-                    min_value, max_value,
+            `SELECT cde_id, cde_name, variable_name, cde_data_type, cde_definition,
+                    preferred_question_text, unit_of_measure,
+                    pv_labels, pv_codes, pv_definitions,
+                    min_value, max_value, nlm_identifier,
                     classification_agnostic, classification_neurotrauma,
                     classification_tbi, classification_pte, classification_sci,
+                    classification_epilepsy,
                     bundle_id AS _bundle_id, bundle_name
              FROM cde_full WHERE bundle_id IN (${idPlaceholders})
              ORDER BY cde_name`,
@@ -427,6 +456,39 @@ function exportToRedcap() {
     ElMessage.success(`Exported ${fieldCount} fields to CSV.`);
   }
 }
+
+function exportToJsonSchema() {
+  if (!crf.value) return;
+  const cdesByRef = cdeByName.value as unknown as Map<string, JsonSchemaCdeInput>;
+  const bundlesByRef = bundleByName.value as unknown as Map<string, JsonSchemaBundleInput>;
+  const { schema, fieldCount, missingRefs } = buildJsonSchema(
+    crf.value,
+    cdesByRef,
+    bundlesByRef,
+  );
+  if (fieldCount === 0) {
+    ElMessage.warning('Nothing to export — this CRF has no resolvable fields.');
+    return;
+  }
+  downloadJsonSchema(crf.value, schema);
+
+  trackEvent('json_schema_exported', {
+    crf_source: crf.value.source,
+    field_count: fieldCount,
+    missing_refs_count: missingRefs.length,
+  });
+
+  if (missingRefs.length) {
+    ElNotification({
+      type: 'warning',
+      title: 'Exported with missing refs',
+      message: `Skipped ${missingRefs.length} unresolved item(s). First: ${missingRefs[0]}`,
+      duration: 6000,
+    });
+  } else {
+    ElMessage.success(`Exported ${fieldCount} fields to JSON Schema.`);
+  }
+}
 </script>
 
 <template>
@@ -439,12 +501,6 @@ function exportToRedcap() {
       <header class="crf-detail__head">
         <div class="crf-detail__title-row">
           <div class="crf-detail__title-lead">
-            <span
-              class="source-tag"
-              :class="crf.source === 'seeded' ? 'source-tag--seeded' : 'source-tag--custom'"
-            >
-              {{ crf.source === 'seeded' ? 'Validated' : 'Custom' }}
-            </span>
             <!-- Inline-editable title for custom CRFs. Click to enter edit
                  mode; blur/Enter commits, Escape cancels. Seeded CRFs render
                  the title as a static h1. -->
@@ -470,23 +526,36 @@ function exportToRedcap() {
           </div>
           <div class="crf-detail__actions">
             <el-button
-              v-if="crf.external_url"
+              v-if="crf.external_url || isExternalOnly"
               tag="a"
-              :href="crf.external_url"
+              :href="externalRedirectUrl"
               target="_blank"
               rel="noopener"
             >
               <el-icon style="margin-right: 4px"><Link /></el-icon>
               Official form
             </el-button>
-            <el-button
-              type="primary"
+            <el-dropdown
+              trigger="click"
               :disabled="!canExport"
-              @click="exportToRedcap"
+              @command="(cmd: string) => cmd === 'redcap' ? exportToRedcap() : exportToJsonSchema()"
             >
-              <el-icon style="margin-right: 4px"><Download /></el-icon>
-              Download REDCap CSV
-            </el-button>
+              <el-button type="primary" :disabled="!canExport">
+                <el-icon style="margin-right: 4px"><Download /></el-icon>
+                Export
+                <el-icon style="margin-left: 4px"><ArrowDown /></el-icon>
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item command="redcap">
+                    REDCap data dictionary (CSV)
+                  </el-dropdown-item>
+                  <el-dropdown-item command="json-schema">
+                    JSON Schema (draft 2020-12)
+                  </el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
             <el-button
               v-if="isCustom"
               type="danger"
@@ -533,6 +602,36 @@ function exportToRedcap() {
       <div class="crf-detail__body">
         <aside class="crf-detail__meta">
           <div class="meta-block">
+            <div class="meta-block__label">Status</div>
+            <div class="meta-block__value">
+              <el-tooltip
+                placement="right"
+                :content="CRF_BADGE_DESCRIPTIONS[crfBadge(crf).kind]"
+                :show-after="200"
+              >
+                <span
+                  class="source-tag"
+                  :class="`source-tag--${crfBadge(crf).kind}`"
+                >
+                  {{ crfBadge(crf).label }}
+                </span>
+              </el-tooltip>
+              <el-tooltip
+                v-if="isExternalOnly"
+                placement="right"
+                :content="CRF_BADGE_DESCRIPTIONS.external"
+                :show-after="200"
+              >
+                <span
+                  class="source-tag source-tag--external"
+                  style="margin-left: 6px"
+                >
+                  External
+                </span>
+              </el-tooltip>
+            </div>
+          </div>
+          <div class="meta-block">
             <div class="meta-block__label">Version</div>
             <div class="meta-block__value">{{ crf.version }}</div>
           </div>
@@ -575,6 +674,36 @@ function exportToRedcap() {
               >
                 Hover an item to reorder (↑ ↓) or remove.
               </span>
+            </div>
+
+            <!-- External-only seeded CRF (NINDS NOC pattern): the source
+                 data has no items because the instrument is copyright-
+                 restricted. Surface that as a clear callout with a primary
+                 redirect to the licensed publisher, instead of letting it
+                 look like missing data. -->
+            <div
+              v-if="isExternalOnly"
+              class="crf-detail__external-callout"
+            >
+              <h4>Copyright-restricted instrument</h4>
+              <p>
+                This is a published, copyright-protected assessment
+                instrument. The source registry can't redistribute the item
+                text, so there's nothing to render here — search for
+                <strong>"{{ crf.title }}"</strong> on the NINDS CRF Library
+                for licensing details and the official form.
+              </p>
+              <el-button
+                type="primary"
+                size="large"
+                tag="a"
+                :href="externalRedirectUrl"
+                target="_blank"
+                rel="noopener"
+              >
+                <el-icon style="margin-right: 6px"><Link /></el-icon>
+                Look up on NINDS CRF Library
+              </el-button>
             </div>
 
             <!-- Empty state for a custom CRF with no items yet. Spells out
@@ -896,15 +1025,66 @@ function exportToRedcap() {
   text-transform: uppercase;
   border-radius: 2px;
 
-  &--seeded {
+  &--standard,
+  &--qualified {
+    background: #e6f4ea;
+    color: #1f7a3a;
+    border-left: 2px solid #2d6b3a;
+  }
+  &--recorded {
     background: #eaf1fa;
     color: #1f528f;
     border-left: 2px solid #1f528f;
+  }
+  &--candidate {
+    background: #fff7ec;
+    color: #b45309;
+    border-left: 2px solid #b45309;
+  }
+  &--retired {
+    background: #fdecec;
+    color: #a02828;
+    border-left: 2px solid #a02828;
   }
   &--custom {
     background: #fdf3df;
     color: #7a4a05;
     border-left: 2px solid #c08b00;
+  }
+  &--external {
+    background: #f4ecff;
+    color: #5b21b6;
+    border-left: 2px solid #7c3aed;
+  }
+}
+
+// Callout for copyright-restricted external instruments. Visually distinct
+// from the custom-CRF empty state — it's not "needs to be filled in", it's
+// "go look at the source." The primary action is a single redirect button.
+.crf-detail__external-callout {
+  background: #f4ecff;
+  border: 1px solid #d6c4f5;
+  border-left: 4px solid #7c3aed;
+  border-radius: 4px;
+  padding: 1.5rem 1.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+
+  h4 {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+    color: #5b21b6;
+  }
+
+  p {
+    margin: 0;
+    max-width: 620px;
+    font-size: 13px;
+    line-height: 1.55;
+    color: $gray_6;
   }
 }
 

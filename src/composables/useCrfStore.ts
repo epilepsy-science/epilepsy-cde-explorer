@@ -20,7 +20,7 @@ function readCustom(): CrfRecord[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as CustomStorage;
     if (parsed.version !== 1 || !Array.isArray(parsed.crfs)) return [];
-    return parsed.crfs.map((c) => ({ ...c, source: 'custom' }));
+    return parsed.crfs.map((c) => ({ registration_status: null, ...c, source: 'custom' }));
   } catch {
     return [];
   }
@@ -69,9 +69,13 @@ async function loadSeeded(): Promise<CrfRecord[]> {
     const studyTypeSelect = hasStudyType
       ? ', _study_type AS study_type'
       : ", CAST(NULL AS VARCHAR) AS study_type";
+    const hasRegistrationStatus = cols.some((c) => c.column_name === 'registration_status');
+    const registrationStatusSelect = hasRegistrationStatus
+      ? ', registration_status'
+      : ", CAST(NULL AS VARCHAR) AS registration_status";
     const rows = await query<Record<string, unknown>>(
       `SELECT id, crf_name, title, description, instructions, version,
-              disease_scope, estimated_duration_minutes, collection_frequency${externalUrlSelect}${studyTypeSelect},
+              disease_scope, estimated_duration_minutes, collection_frequency${externalUrlSelect}${studyTypeSelect}${registrationStatusSelect},
               CAST(items AS JSON) AS items
        FROM crf
        ORDER BY crf_name`,
@@ -91,6 +95,7 @@ async function loadSeeded(): Promise<CrfRecord[]> {
       collection_frequency: (r.collection_frequency as string | null) ?? null,
       external_url: (r.external_url as string | null) ?? null,
       study_type: (r.study_type as 'Clinical' | 'Preclinical' | null) ?? null,
+      registration_status: (r.registration_status as string | null) ?? null,
       items: normalizeItems(r.items),
       source: 'seeded',
     }));
@@ -167,6 +172,7 @@ function createCustomCrf(partial: {
     collection_frequency: null,
     external_url: null,
     study_type: null,
+    registration_status: null,
     items: [],
     source: 'custom',
     created_at: now,

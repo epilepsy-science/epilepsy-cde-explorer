@@ -34,10 +34,14 @@ const TMP = resolve(tmpdir(), 'cde-prep');
 // `nlm_identifier` values like "UMLS|UMLS|UMLS") that prevents the
 // canonical-key reconciler from matching it cleanly, so it's opt-in only —
 // pass it explicitly on the CLI when you want it included.
+// Order matters: lower index = higher priority during canonical CDE
+// reconciliation (per-column "first non-null" wins). NLM precedes NINDS so
+// NLM-only fields (registration_status, aliases, etc.) survive on the
+// canonical row even when NINDS also matches the same canonical_key.
 const DEFAULT_SOURCE_DIRS = [
   'data/demo',
-  'data/ninds-epilepsy',
   'data/nlm-ninds-disease-epilepsy',
+  'data/ninds-epilepsy',
   'data/pte-clinical',
 ];
 

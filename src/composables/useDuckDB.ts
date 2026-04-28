@@ -212,19 +212,16 @@ async function init(): Promise<DuckDBHandle> {
       FROM cde_keyed
     `);
 
-    // Canonical CDE rows: one per canonical_key, picking the first-source row,
-    // with origins aggregated across all contributing sources.
+    // Canonical CDE rows: one per canonical_key, built by taking the first
+    // NON-NULL value per column across all source rows, ordered by
+    // _source_order. arg_min(col, _source_order) ignores rows where col IS
+    // NULL, so a sparse field that's only populated on a lower-priority
+    // source (e.g. NLM's `registration_status` when NINDS is "first") still
+    // makes it onto the canonical row. When two sources both set the same
+    // field, the higher-priority one (lower _source_order) wins.
     await conn.query(`
       CREATE OR REPLACE VIEW cde AS
-      WITH picked AS (
-        SELECT * FROM (
-          SELECT *, ROW_NUMBER() OVER (
-            PARTITION BY canonical_key ORDER BY _source_order
-          ) AS rn
-          FROM cde_keyed
-        ) WHERE rn = 1
-      ),
-      origins AS (
+      WITH origins AS (
         -- string_agg without ORDER BY is non-deterministic (origins can flip
         -- between "A · B" and "B · A" between queries). Aggregate via array
         -- → sort → join so the displayed list is stable.
@@ -246,14 +243,20 @@ async function init(): Promise<DuckDBHandle> {
         FROM cde_keyed k
         LEFT JOIN source_labels sl ON sl.source_key = k._source_key
         GROUP BY k.canonical_key
+      ),
+      canonical AS (
+        SELECT canonical_key,
+               arg_min(COLUMNS(* EXCLUDE (canonical_key, _source_order)), _source_order)
+        FROM cde_keyed
+        GROUP BY canonical_key
       )
-      SELECT p.* EXCLUDE (rn),
+      SELECT c.*,
              o.origins,
              o.origin_keys,
              o.origin_count,
              o.study_types,
              o.study_type_count
-      FROM picked p
+      FROM canonical c
       LEFT JOIN origins o USING (canonical_key)
     `);
 

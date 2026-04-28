@@ -2,19 +2,42 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCrfStore } from '@/composables/useCrfStore';
-import { useStudyType, type StudyTypeFilter } from '@/composables/useStudyType';
-import type { CrfRecord } from '@/types';
+import { useStudyType } from '@/composables/useStudyType';
+import { CRF_BADGE_DESCRIPTIONS, crfBadge, type CrfRecord } from '@/types';
+
+// Status legend rows shown in the help popover next to the Source filter.
+// Order matches NLM's tier hierarchy (most → least vetted) with Custom and
+// External appended since they're our own dimensions.
+const STATUS_LEGEND: Array<{ kind: 'standard' | 'qualified' | 'recorded' | 'candidate' | 'retired' | 'custom' | 'external'; label: string }> = [
+  { kind: 'standard', label: 'Standard' },
+  { kind: 'qualified', label: 'Qualified' },
+  { kind: 'recorded', label: 'Recorded' },
+  { kind: 'candidate', label: 'Candidate' },
+  { kind: 'retired', label: 'Retired' },
+  { kind: 'custom', label: 'Custom' },
+  { kind: 'external', label: 'External' },
+];
 import CrfCreateDialog from '@/components/CrfCreateDialog.vue';
 
 const router = useRouter();
 const { crfs, ensureLoaded, loaded } = useCrfStore();
 const { filter: studyTypeFilter } = useStudyType();
 const search = ref('');
-const filter = ref<'all' | 'seeded' | 'custom'>('all');
+// Source filter values: 'all', 'custom', or a CRF status label that exists in
+// the loaded data ('Standard', 'Qualified', etc.). Built dynamically from
+// what's actually present so we don't list empty buckets.
+const filter = ref<string>('all');
+// Form-type filter: most external-only CRFs are NINDS NOC stubs (no items,
+// just a redirect to a copyrighted instrument). Default to "items" so the
+// list shows actual collectable forms; users can flip to "external" or
+// "all" to surface the stubs explicitly.
+const formType = ref<'items' | 'external' | 'all'>('items');
 const createDialogOpen = ref(false);
 
-function setStudyType(v: StudyTypeFilter) {
-  studyTypeFilter.value = v;
+// Match the CDEs page's setStudyType signature so the dropdown wiring
+// matches the rest of the app.
+function isExternalOnly(c: CrfRecord): boolean {
+  return c.source === 'seeded' && c.items.length === 0;
 }
 
 function onCrfCreated(id: string) {
@@ -56,11 +79,21 @@ function totalFields(c: CrfRecord): number {
   return c.items.filter((it) => it.type !== 'section').length;
 }
 
+function matchesSourceFilter(c: CrfRecord): boolean {
+  const f = filter.value;
+  if (f === 'all') return true;
+  if (f === 'custom') return c.source === 'custom';
+  // Any other value is a status label (Standard, Qualified, …).
+  return c.source === 'seeded' && crfBadge(c).label === f;
+}
+
 const filtered = computed<CrfRecord[]>(() => {
   const q = search.value.trim().toLowerCase();
   const st = studyTypeFilter.value;
   return crfs.value.filter((c) => {
-    if (filter.value !== 'all' && c.source !== filter.value) return false;
+    if (!matchesSourceFilter(c)) return false;
+    if (formType.value === 'items' && isExternalOnly(c)) return false;
+    if (formType.value === 'external' && !isExternalOnly(c)) return false;
     // Custom CRFs (user-authored, study_type null) always show — they're in
     // the reviewer's personal workspace regardless of clinical/preclinical.
     if (st !== 'all' && c.source === 'seeded' && c.study_type !== st) return false;
@@ -73,10 +106,30 @@ const filtered = computed<CrfRecord[]>(() => {
   });
 });
 
+// Per-status counts for seeded CRFs, keyed by the badge label so the
+// dropdown options stay in sync with what crfBadge() actually emits. Order
+// follows STATUS_LEGEND so the dropdown reads top-tier → bottom-tier.
+const seededStatusCounts = computed(() => {
+  const counts = new Map<string, number>();
+  for (const c of crfs.value) {
+    if (c.source !== 'seeded') continue;
+    const label = crfBadge(c).label;
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  // Preserve legend order, dropping empty buckets.
+  const ordered: Array<{ label: string; count: number }> = [];
+  for (const row of STATUS_LEGEND) {
+    if (row.kind === 'custom' || row.kind === 'external') continue;
+    const n = counts.get(row.label);
+    if (n) ordered.push({ label: row.label, count: n });
+  }
+  return ordered;
+});
+
 const counts = computed(() => ({
   all: crfs.value.length,
-  seeded: crfs.value.filter((c) => c.source === 'seeded').length,
   custom: crfs.value.filter((c) => c.source === 'custom').length,
+  externalOnly: crfs.value.filter((c) => isExternalOnly(c)).length,
 }));
 </script>
 
@@ -96,16 +149,6 @@ const counts = computed(() => ({
           <el-icon style="margin-right: 4px"><Plus /></el-icon>
           New CRF
         </el-button>
-        <div class="lens-label subtle">Study type</div>
-        <el-radio-group
-          :model-value="studyTypeFilter"
-          @update:model-value="(v: string | number | boolean | undefined) => setStudyType(v as StudyTypeFilter)"
-          size="default"
-        >
-          <el-radio-button value="all">All</el-radio-button>
-          <el-radio-button value="Clinical">Clinical</el-radio-button>
-          <el-radio-button value="Preclinical">Preclinical</el-radio-button>
-        </el-radio-group>
       </div>
     </header>
 
@@ -120,11 +163,69 @@ const counts = computed(() => ({
       >
         <template #prefix><el-icon><Search /></el-icon></template>
       </el-input>
-      <el-radio-group v-model="filter" size="default">
-        <el-radio-button value="all">All ({{ counts.all }})</el-radio-button>
-        <el-radio-button value="seeded">Validated ({{ counts.seeded }})</el-radio-button>
-        <el-radio-button value="custom">Custom ({{ counts.custom }})</el-radio-button>
-      </el-radio-group>
+      <div class="filter-with-help">
+        <el-select v-model="filter" placeholder="Source" class="filter-select">
+          <el-option label="All sources" value="all" />
+          <el-option
+            v-for="s in seededStatusCounts"
+            :key="s.label"
+            :label="`${s.label} (${s.count})`"
+            :value="s.label"
+          />
+          <el-option
+            v-if="counts.custom > 0"
+            :label="`Custom (${counts.custom})`"
+            value="custom"
+          />
+        </el-select>
+        <el-popover placement="bottom-start" :width="360" trigger="click">
+          <template #reference>
+            <el-button
+              circle
+              text
+              size="small"
+              class="filter-help-btn"
+              title="What do these statuses mean?"
+            >
+              <el-icon><QuestionFilled /></el-icon>
+            </el-button>
+          </template>
+          <div class="status-legend">
+            <h4 class="status-legend__title">CRF status</h4>
+            <p class="status-legend__lede">
+              NLM tags every form with a lifecycle tier. Forms from other
+              sources (NINDS, etc.) without an explicit tier default to
+              "Qualified" — "Standard" stays reserved for NLM's explicit
+              top-tier marker.
+            </p>
+            <div
+              v-for="row in STATUS_LEGEND"
+              :key="row.kind"
+              class="status-legend__row"
+            >
+              <span
+                class="status-legend__chip"
+                :class="`status-legend__chip--${row.kind}`"
+              >
+                {{ row.label }}
+              </span>
+              <span class="status-legend__desc">
+                {{ CRF_BADGE_DESCRIPTIONS[row.kind] }}
+              </span>
+            </div>
+          </div>
+        </el-popover>
+      </div>
+      <el-select v-model="formType" placeholder="Form type" class="filter-select">
+        <el-option label="With items only" value="items" />
+        <el-option :label="`External instruments (${counts.externalOnly})`" value="external" />
+        <el-option label="All forms" value="all" />
+      </el-select>
+      <el-select v-model="studyTypeFilter" placeholder="Study type" class="filter-select">
+        <el-option label="All" value="all" />
+        <el-option label="Clinical" value="Clinical" />
+        <el-option label="Preclinical" value="Preclinical" />
+      </el-select>
     </div>
 
     <div v-if="!loaded" class="crfs-view__loading">Loading CRFs…</div>
@@ -154,12 +255,20 @@ const counts = computed(() => ({
         @click="router.push(`/crfs/${c.id}`)"
       >
         <header class="crf-card__head">
-          <span
-            class="crf-card__source"
-            :class="c.source === 'seeded' ? 'crf-card__source--seeded' : 'crf-card__source--custom'"
-          >
-            {{ c.source === 'seeded' ? 'Validated' : 'Custom' }}
-          </span>
+          <div class="crf-card__head-tags">
+            <span
+              class="crf-card__source"
+              :class="`crf-card__source--${crfBadge(c).kind}`"
+            >
+              {{ crfBadge(c).label }}
+            </span>
+            <span
+              v-if="isExternalOnly(c)"
+              class="crf-card__source crf-card__source--external"
+            >
+              External
+            </span>
+          </div>
           <span v-if="c.disease_scope" class="crf-card__scope">{{ c.disease_scope }}</span>
         </header>
         <h3 class="crf-card__title">{{ c.title }}</h3>
@@ -280,6 +389,98 @@ const counts = computed(() => ({
   }
 }
 
+// Source filter sits next to a small (?) help button that opens the legend
+// popover. Flex keeps them aligned and gap matches the other filter spacing.
+.filter-with-help {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.filter-help-btn {
+  color: $gray_4;
+
+  &:hover {
+    color: $es-primary-color;
+  }
+}
+
+// Popover legend — same chip palette as cards, paired with the plain-English
+// status descriptions so reviewers can learn the vocabulary in one place.
+.status-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  &__title {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: $gray_6;
+  }
+
+  &__lede {
+    margin: 0;
+    font-size: 12px;
+    color: $gray_5;
+    line-height: 1.5;
+  }
+
+  &__row {
+    display: grid;
+    grid-template-columns: 92px 1fr;
+    align-items: start;
+    gap: 10px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  &__chip {
+    display: inline-block;
+    padding: 1px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-radius: 2px;
+
+    &--standard,
+    &--qualified {
+      background: #e6f4ea;
+      color: #1f7a3a;
+      border-left: 2px solid #2d6b3a;
+    }
+    &--recorded {
+      background: #eaf1fa;
+      color: #1f528f;
+      border-left: 2px solid #1f528f;
+    }
+    &--candidate {
+      background: #fff7ec;
+      color: #b45309;
+      border-left: 2px solid #b45309;
+    }
+    &--retired {
+      background: #fdecec;
+      color: #a02828;
+      border-left: 2px solid #a02828;
+    }
+    &--custom {
+      background: #fdf3df;
+      color: #7a4a05;
+      border-left: 2px solid #c08b00;
+    }
+    &--external {
+      background: #f4ecff;
+      color: #5b21b6;
+      border-left: 2px solid #7c3aed;
+    }
+  }
+
+  &__desc {
+    color: $gray_6;
+  }
+}
+
 .crf-grid {
   display: grid;
   // Two wider, form-shaped cards side-by-side on desktop; collapses to one
@@ -321,16 +522,49 @@ const counts = computed(() => ({
     text-transform: uppercase;
     border-radius: 2px;
 
-    &--seeded {
+    // Standard / Qualified — recognized authoritative tiers (NLM "Standard"
+    // and "Qualified" are the green-light states).
+    &--standard,
+    &--qualified {
+      background: #e6f4ea;
+      color: #1f7a3a;
+      border-left: 2px solid #2d6b3a;
+    }
+    // Recorded — accepted but provisional.
+    &--recorded {
       background: #eaf1fa;
       color: #1f528f;
       border-left: 2px solid #1f528f;
+    }
+    // Candidate — proposed, not yet accepted.
+    &--candidate {
+      background: #fff7ec;
+      color: #b45309;
+      border-left: 2px solid #b45309;
+    }
+    // Retired — deprecated; show in muted red.
+    &--retired {
+      background: #fdecec;
+      color: #a02828;
+      border-left: 2px solid #a02828;
     }
     &--custom {
       background: #fdf3df;
       color: #7a4a05;
       border-left: 2px solid #c08b00;
     }
+    &--external {
+      background: #f4ecff;
+      color: #5b21b6;
+      border-left: 2px solid #7c3aed;
+    }
+  }
+
+  &__head-tags {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    flex-wrap: wrap;
   }
 
   &__scope {

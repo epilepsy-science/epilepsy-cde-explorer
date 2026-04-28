@@ -211,6 +211,53 @@ export interface CrfItem {
   instructions?: string | null;
 }
 
+/** NLM registration tier for a published form. Defaults to "Qualified" for
+ *  seeded CRFs from sources that don't expose a status (NINDS, demo, PTE).
+ *  We deliberately don't default to "Standard" — that label is reserved for
+ *  NLM's explicit highest-tier marker; squatting on it would misrepresent
+ *  forms whose actual tier we don't know. */
+export const CRF_STATUS_DEFAULT = 'Qualified';
+export type CrfStatusKind =
+  | 'custom'
+  | 'standard'
+  | 'qualified'
+  | 'recorded'
+  | 'candidate'
+  | 'retired';
+
+export interface CrfBadge {
+  /** Displayed label, e.g. "Standard", "Qualified", "Custom". */
+  label: string;
+  /** Lowercase status kind — components map this to their own scoped CSS. */
+  kind: CrfStatusKind;
+}
+
+/** Plain-English explanation of each badge state. Surfaced as tooltip text
+ *  on the detail view and as a popover legend next to the source filter. */
+export const CRF_BADGE_DESCRIPTIONS: Record<CrfStatusKind | 'external', string> = {
+  standard: 'Reference standard — fully accepted at the highest tier; no further review needed.',
+  qualified: 'Reviewed and accepted by the stewardship body; recommended for use.',
+  recorded: 'Accepted at a basic level; not yet formally vetted at the Qualified tier.',
+  candidate: 'Newly submitted; under review for promotion to a higher tier.',
+  retired: 'Deprecated — no longer recommended for new use.',
+  custom: 'User-authored CRF stored in your browser; not from a source registry.',
+  external:
+    'Copyright-restricted external instrument. The source registry can\'t redistribute the items — only a link to the licensed publisher.',
+};
+
+/** Unified badge resolver used on the CRFs list, the CRF detail header, and
+ *  the home-page featured panel so they stay in sync. */
+export function crfBadge(c: { source: 'seeded' | 'custom'; registration_status: string | null }): CrfBadge {
+  if (c.source === 'custom') return { label: 'Custom', kind: 'custom' };
+  const label = c.registration_status?.trim() || CRF_STATUS_DEFAULT;
+  const kind = label.toLowerCase();
+  const known: CrfStatusKind[] = ['standard', 'qualified', 'recorded', 'candidate', 'retired'];
+  return {
+    label,
+    kind: (known as string[]).includes(kind) ? (kind as CrfStatusKind) : 'standard',
+  };
+}
+
 export interface CrfRecord {
   id: string;
   crf_name: string;
@@ -223,6 +270,11 @@ export interface CrfRecord {
   collection_frequency: string | null;
   external_url: string | null;
   study_type: 'Clinical' | 'Preclinical' | null;
+  /** NLM lifecycle marker — Standard / Qualified / Recorded / Candidate /
+   *  Retired. Null when the source doesn't expose one (NINDS, demo, PTE,
+   *  custom); UI defaults seeded CRFs without status to "Qualified" — see
+   *  CRF_STATUS_DEFAULT for why "Standard" isn't used as the fallback. */
+  registration_status: string | null;
   items: CrfItem[];
   /** 'seeded' = read-only from parquet; 'custom' = user-authored, in localStorage. */
   source: 'seeded' | 'custom';

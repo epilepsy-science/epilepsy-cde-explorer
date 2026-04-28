@@ -7,6 +7,18 @@ import DiseaseScopeCell from './DiseaseScopeCell.vue';
 import AddToCrfButton from './AddToCrfButton.vue';
 import CdeOriginDiff from './CdeOriginDiff.vue';
 import { useConcepts, conceptLabel, type ConceptForCde } from '@/composables/useConcepts';
+import { DISEASE_OPTIONS } from '@/composables/useDiseaseLens';
+
+// Per-disease classification rows for the right-hand grid. Derived from
+// DISEASE_OPTIONS so adding a new disease (e.g. classification_epilepsy) flows
+// in automatically. Excludes 'all' which has no classification column.
+const CLASSIFICATION_ROWS = DISEASE_OPTIONS
+  .filter((o) => o.column !== null)
+  .map((o) => ({
+    key: o.key,
+    label: o.label,
+    column: `classification_${o.key}` as keyof CdeRow,
+  }));
 
 const props = defineProps<{
   modelValue: boolean;
@@ -37,6 +49,16 @@ const permissibleValues = computed(() => {
 
 const referenceList = computed(() => splitSemi(props.cde?.refs));
 const sourceList = computed(() => splitSemi(props.cde?.cde_source));
+const aliasList = computed(() => splitPipe(props.cde?.aliases));
+const keywordList = computed(() => splitPipe(props.cde?.keywords));
+
+// Any of the NLM/source-attribution fields present? Drives the
+// "Source metadata" section's visibility so we don't render an empty header.
+const hasSourceMeta = computed(() => {
+  const c = props.cde;
+  if (!c) return false;
+  return Boolean(c.steward_org || c.registration_status || c.cde_origin || c.population);
+});
 
 // CDEs that belong to a bundle should only ever enter a CRF as part of that
 // bundle — they're collected together by definition. So when this CDE is
@@ -150,6 +172,58 @@ const addLabel = computed<string>(() =>
         </p>
       </section>
 
+      <section v-if="aliasList.length">
+        <h3>Also known as</h3>
+        <div class="tags">
+          <el-tag
+            v-for="a in aliasList"
+            :key="a"
+            size="small"
+            type="info"
+            effect="plain"
+          >{{ a }}</el-tag>
+        </div>
+      </section>
+
+      <section v-if="hasSourceMeta || keywordList.length">
+        <h3>Source metadata</h3>
+        <table v-if="hasSourceMeta" class="kv">
+          <tbody>
+            <tr v-if="cde.steward_org">
+              <td>Steward</td>
+              <td>{{ cde.steward_org }}</td>
+            </tr>
+            <tr v-if="cde.registration_status">
+              <td>Status</td>
+              <td>
+                <el-tag size="small" :type="cde.registration_status === 'Standard' || cde.registration_status === 'Qualified' ? 'success' : 'info'">
+                  {{ cde.registration_status }}
+                </el-tag>
+              </td>
+            </tr>
+            <tr v-if="cde.cde_origin">
+              <td>Origin</td>
+              <td>{{ cde.cde_origin }}</td>
+            </tr>
+            <tr v-if="cde.population">
+              <td>Population</td>
+              <td>{{ cde.population }}</td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="keywordList.length" class="keyword-row">
+          <span class="muted">Keywords:</span>
+          <div class="tags">
+            <el-tag
+              v-for="k in keywordList"
+              :key="k"
+              size="small"
+              effect="plain"
+            >{{ k }}</el-tag>
+          </div>
+        </div>
+      </section>
+
       <section v-if="cde.bundle_name">
         <h3>Bundle</h3>
         <div class="breadcrumb">
@@ -174,16 +248,13 @@ const addLabel = computed<string>(() =>
         <div>
           <h3>Classification</h3>
           <div class="classification-grid">
-            <span class="muted">Agnostic</span>
-            <ClassificationPill :value="cde.classification_agnostic" show-placeholder />
-            <span class="muted">Neurotrauma</span>
-            <ClassificationPill :value="cde.classification_neurotrauma" show-placeholder />
-            <span class="muted">TBI</span>
-            <ClassificationPill :value="cde.classification_tbi" show-placeholder />
-            <span class="muted">PTE</span>
-            <ClassificationPill :value="cde.classification_pte" show-placeholder />
-            <span class="muted">SCI</span>
-            <ClassificationPill :value="cde.classification_sci" show-placeholder />
+            <template v-for="row in CLASSIFICATION_ROWS" :key="row.key">
+              <span class="muted">{{ row.label }}</span>
+              <ClassificationPill
+                :value="(cde[row.column] as string | null)"
+                show-placeholder
+              />
+            </template>
           </div>
         </div>
       </section>
@@ -365,6 +436,19 @@ const addLabel = computed<string>(() =>
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+.keyword-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  margin-top: 4px;
+
+  .muted {
+    flex: 0 0 auto;
+    padding-top: 3px;
+  }
 }
 
 .refs {

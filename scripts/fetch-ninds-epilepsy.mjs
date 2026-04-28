@@ -33,8 +33,6 @@ const DISEASE_ID = 'EPILEPSY';
 const SOURCE_LABEL = 'NINDS Epilepsy';
 const SOURCE_KEY = 'ninds-epilepsy';
 const TODAY = new Date().toISOString().slice(0, 10);
-// Canonical DOCX host for NINDS CRF files (paths on `externalUrl` are relative).
-const NINDS_DOC_BASE = 'https://www.commondataelements.ninds.nih.gov/sites/nindscde/files';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
