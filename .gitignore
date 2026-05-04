@@ -25,6 +25,20 @@ public/data/*/
 # Raw Pennsieve discover export — large, opt-in, not part of default builds
 data/pennsieve-discover/
 
+# CDISC content is ©CDISC and can't be redistributed. The CDASHIG spec
+# (docs/cdasig-v2.md) and any data extracted from it (variable definitions,
+# question text) must be fetched per-developer; only the extractor script
+# is checked in.
+docs/cdasig-v2.md
+docs/cdasig-v*.md
+data/cdash/
+
+# CDISC Controlled Terminology — pulled fresh on every build from NCI EVS
+# (which licenses CT for free redistribution with attribution). Parquet
+# output goes under public/data/cdisc-ct/ which is already gitignored;
+# raw XML cache + intermediate JSONL stays local.
+data/cdisc-ct/
+
 # Terraform — recurse into sibling components (terraform/api/, etc.)
 terraform/**/.terraform/
 terraform/**/.terraform-tmp/

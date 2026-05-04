@@ -486,6 +486,57 @@ async function init(): Promise<DuckDBHandle> {
       LEFT JOIN bundle_cde_counts bcc ON bcc.bundle_id = CAST(b.id AS VARCHAR)
     `);
 
+    // ── CDISC Controlled Terminology (NCI EVS, redistributable per
+    //    cancer.gov/about-nci/.../cdisc) ─────────────────────────────────────
+    // Registered alongside the CDE catalog so the detail drawer can join CDE
+    // value lists against published CDASH/SDTM codelists. Tolerant of missing
+    // files: if `yarn prepare-data` hasn't run yet the views fall back to
+    // empty stubs so the rest of the app stays functional.
+    const ctBase = `${base}/cdisc-ct`;
+    let ctRegistered = false;
+    for (const name of ['codelist.parquet', 'codelist_item.parquet']) {
+      const url = `${ctBase}/${name}`;
+      if (!(await fetchWithBinaryCheck(url))) {
+        ctRegistered = false;
+        break;
+      }
+      await db.registerFileURL(`__cdisc_ct__${name}`, url, duckdb.DuckDBDataProtocol.HTTP, false);
+      ctRegistered = true;
+    }
+    if (ctRegistered) {
+      await conn.query(
+        `CREATE OR REPLACE VIEW cdisc_codelist AS SELECT * FROM '__cdisc_ct__codelist.parquet'`,
+      );
+      await conn.query(
+        `CREATE OR REPLACE VIEW cdisc_codelist_item AS SELECT * FROM '__cdisc_ct__codelist_item.parquet'`,
+      );
+    } else {
+      await conn.query(`
+        CREATE OR REPLACE VIEW cdisc_codelist AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS codelist_oid,
+          CAST(NULL AS VARCHAR) AS codelist_short_name,
+          CAST(NULL AS VARCHAR) AS codelist_nci_code,
+          CAST(NULL AS VARCHAR) AS codelist_name,
+          CAST(NULL AS VARCHAR) AS data_type,
+          CAST(NULL AS BOOLEAN) AS extensible,
+          CAST(NULL AS VARCHAR) AS description
+        WHERE false
+      `);
+      await conn.query(`
+        CREATE OR REPLACE VIEW cdisc_codelist_item AS
+        SELECT
+          CAST(NULL AS VARCHAR) AS codelist_oid,
+          CAST(NULL AS VARCHAR) AS codelist_short_name,
+          CAST(NULL AS VARCHAR) AS coded_value,
+          CAST(NULL AS VARCHAR) AS nci_code,
+          CAST(NULL AS VARCHAR) AS preferred_term,
+          CAST(NULL AS VARCHAR) AS definition,
+          CAST(NULL AS VARCHAR) AS synonyms
+        WHERE false
+      `);
+    }
+
     status.value = 'ready';
     return { db, conn };
   } catch (e) {

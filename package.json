@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "prepare-data": "node scripts/prepare-data.mjs",
+    "prepare-data": "node scripts/prepare-data.mjs && node scripts/fetch-cdisc-ct.mjs",
     "enrich-concepts": "node scripts/enrich-concepts.mjs",
     "export-schemas": "node scripts/export-json-schemas.mjs",
     "sync-api-types": "openapi-typescript api/openapi.yaml -o src/api/generated/schema.ts",
