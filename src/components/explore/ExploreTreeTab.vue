@@ -170,7 +170,7 @@ const defaultExpanded = computed(() => tree.value.slice(0, 2).map((n) => n.id));
 <template>
   <div class="tree-tab" v-loading="loading">
     <p class="subtle">
-      Drill through the NT-PRECEDS organizational hierarchy for
+      Drill through the organizational hierarchy for
       <strong>{{ option(lens).longLabel }}</strong>.
       Click a bundle to see the CDEs inside it.
     </p>

@@ -313,11 +313,14 @@ function build(cdeRows, bundleRows) {
     cdeRowsByBundle.get(bn).push(r);
   }
   const bundleRecords = [];
+  const bundleNameToUuid = new Map();
   for (const [name, bundleMeta] of bundleByKey) {
     const cdeRowsForBundle = cdeRowsByBundle.get(name) || [];
     const first = cdeRowsForBundle[0] || {};
+    const uuid = uid(`bundle:${name}`);
+    bundleNameToUuid.set(name, uuid);
     bundleRecords.push({
-      id: uid(`bundle:${name}`),
+      id: uuid,
       data: {
         bundle_name: name,
         display_name: nullIfEmpty(bundleMeta.display_name) || name,
@@ -337,6 +340,7 @@ function build(cdeRows, bundleRows) {
   const clsRecords = [];
   const classifiesRels = [];
   const sourcedClsRels = [];
+  const partOfRels = [];
   const seenCls = new Set();
   for (const r of rows) {
     const cid = r.cde_id.trim();
@@ -384,12 +388,24 @@ function build(cdeRows, bundleRows) {
     });
     classifiesRels.push([clsUuid, cdeUuid]);
     sourcedClsRels.push([clsUuid, provenance.id]);
+
+    // PART_OF: classification → bundle (the runtime's bundle_of_cls view
+    // joins on this edge to attach bundle_name to each CDE row).
+    const bundleName = nullIfEmpty(r.bundle_name);
+    if (bundleName) {
+      const bundleUuid = bundleNameToUuid.get(bundleName);
+      if (bundleUuid) partOfRels.push([clsUuid, bundleUuid]);
+    }
   }
 
-  // SOURCED_FROM rels for each CDE to the provenance record.
+  // SOURCED_FROM rels for each CDE and bundle to the provenance record.
   const sourcedRels = [];
   for (const cdeUuid of cdeIdToUuid.values()) {
     sourcedRels.push([cdeUuid, provenance.id]);
+  }
+  const sourcedBundleRels = [];
+  for (const bundleUuid of bundleNameToUuid.values()) {
+    sourcedBundleRels.push([bundleUuid, provenance.id]);
   }
 
   return {
@@ -398,7 +414,7 @@ function build(cdeRows, bundleRows) {
     clsRecords,
     crfRecords,
     bundleRecords,
-    rels: { classifiesRels, sourcedRels, sourcedClsRels },
+    rels: { classifiesRels, partOfRels, sourcedRels, sourcedClsRels, sourcedBundleRels },
     skipped: cdeRows.length - rows.length,
   };
 }
@@ -450,8 +466,10 @@ function emit(out) {
 
   const relLines = ['source_record_id,target_record_id,relationship_type'];
   for (const [s, t] of out.rels.classifiesRels) relLines.push(`${s},${t},CLASSIFIES`);
+  for (const [s, t] of out.rels.partOfRels) relLines.push(`${s},${t},PART_OF`);
   for (const [s, t] of out.rels.sourcedRels) relLines.push(`${s},${t},SOURCED_FROM`);
   for (const [s, t] of out.rels.sourcedClsRels) relLines.push(`${s},${t},SOURCED_FROM`);
+  for (const [s, t] of out.rels.sourcedBundleRels) relLines.push(`${s},${t},SOURCED_FROM`);
   writeFileSync(resolve(META, 'relationships.csv'), relLines.join('\n') + '\n');
 
   writeFileSync(

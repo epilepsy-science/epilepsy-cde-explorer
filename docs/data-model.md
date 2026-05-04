@@ -23,6 +23,11 @@ Sources never share IDs or coordinate identifiers; the integration logic
 reconciles them on a *canonical key* derived from semantically meaningful
 upstream identifiers (NLM tinyId, caDSR DEC, normalized CDE name).
 
+For the standards rationale behind the model — why classifications are
+where context-varying metadata lives, why `PART_OF` goes
+classification → bundle, where we diverge from NLM — see
+[`standards-alignment.md`](./standards-alignment.md).
+
 ## Source directory layout
 
 Every source directory follows the same shape:
@@ -128,8 +133,11 @@ NINDS and NLM organize CDEs by CRF instead. Bundles represent CDEs that
 | `domain`, `subdomain`, `category` | Hierarchical taxonomy. |
 | `working_group` | Authoring group (NT-PRECEDS only). |
 
-Bundle ↔ CDE membership is expressed as `PART_OF` relationships with the CDE
-as `source_record_id` and the bundle as `target_record_id`.
+Bundle ↔ CDE membership is expressed as `PART_OF` relationships with the
+*classification* row as `source_record_id` and the bundle as
+`target_record_id`. (The classification — not the CDE — is the source side
+because bundle assignment, like the rest of the classification's taxonomy,
+can vary per scoping context.)
 
 ### `crf` — Case Report Forms
 
@@ -172,7 +180,7 @@ Used to wire records together within a source.
 | Type | Meaning |
 | --- | --- |
 | `CLASSIFIES` | Classification row → CDE. Each cls row points at the CDE it qualifies. |
-| `PART_OF` | CDE → Bundle. The CDE belongs to the bundle. |
+| `PART_OF` | Classification → Bundle. The classified CDE belongs to the bundle in this scoping context. |
 | `SOURCED_FROM` | Any record → Provenance. Tags a record with its source. |
 
 ## Conventions
