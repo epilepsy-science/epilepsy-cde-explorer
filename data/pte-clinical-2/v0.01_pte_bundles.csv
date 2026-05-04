@@ -1,0 +1,46 @@
+bundle_name,display_name,description,pte_crf_name
+DRS,DRS,,DRS
+SWLS,SWLS,,SWLS
+Seizure Classification ,Seizure Classification ,,Seizure Classification
+Seizure Classification,Seizure Classification,,Seizure Classification
+Focal Seizure Classification,Focal Seizure Classification,,Seizure Classification
+Focal Aware Seizure Subtypes,Focal Aware Seizure Subtypes,,Seizure Classification
+Focal Impaired Awareness Seizure Subtypes,Focal Impaired Awareness Seizure Subtypes,,Seizure Classification
+Focal Unknown Awareness Seizure Subtypes,Focal Unknown Awareness Seizure Subtypes,,Seizure Classification
+Generalized Seizure Classification,Generalized Seizure Classification,,Seizure Classification
+Generalized Motor Seizure Subtypes,Generalized Motor Seizure Subtypes,,Seizure Classification
+Generalized Non-Motor Seizure Subtypes,Generalized Non-Motor Seizure Subtypes,,Seizure Classification
+Unknown Onset Seizure Subtypes,Unknown Onset Seizure Subtypes,,Seizure Classification
+Epilepsy Etiology Classification,Epilepsy Etiology Classification,,Eitiological Classification
+Structural Epilepsy Etiology,Structural Epilepsy Etiology,,Eitiological Classification
+Medical History Body System,Medical History Body System,,Medical History
+Medical History Condition Dates,Medical History Condition Dates,,Medical History
+Perinatal Neurologic Event,Perinatal Neurologic Event,,Medical History
+Surgical or Therapeutic Procedure,Surgical or Therapeutic Procedure,,Medical History
+MPAI4,MPAI4,,MPAI-4
+Tobacco Product Use,Tobacco Product Use,,Substance Use
+Illicit Drug or Substance Use,Illicit Drug or Substance Use,,Substance Use
+Prior Traumatic Injury,Prior Traumatic Injury,,TBI History
+Medical History Condition,Medical History Condition,,TBI History
+Injury Cause and Classification,Injury Cause and Classification,,TBI History
+OSUTBIMS,OSUTBIMS,,OSUTBIMS
+GCS,GCS,,GCS
+GOS,GOS,,TBI Injury: History of Symptoms and Assessment
+HAIS,HAIS,,HAIS Score
+Seizure Assessment,Seizure Assessment,,TBI Injury: History of Secondary Insults
+Intracranial Procedure,Intracranial Procedure,,TBI Treatment History: At time of injury
+ICP Monitoring Problem,ICP Monitoring Problem,,TBI Treatment History: At time of injury
+ICP Catheter Site,ICP Catheter Site,,TBI Treatment History: At time of injury
+ICP Device,ICP Device,,TBI Treatment History: At time of injury
+Therapy or Rehabilitation,Therapy or Rehabilitation,,TBI Treatment History: Therapy and Rehab
+ER Discharge Destination,ER Discharge Destination,,TBI Treatment History: Discharge Information
+ER Discharge Reason,ER Discharge Reason,,TBI Treatment History: Discharge Information
+Hospital Discharge Destination,Hospital Discharge Destination,,TBI Treatment History: Discharge Information
+Post-Trauma Clinical Care Location,Post-Trauma Clinical Care Location,,TBI Treatment History: Discharge Information
+ICU Discharge,ICU Discharge,,TBI Treatment History: Discharge Information
+Sex Genotype,Sex Genotype,,Demographics
+Birth Sex,Birth Sex,,Demographics
+Gender Identity,Gender Identity,,Demographics
+Employment Status,Employment Status,,Demographics
+GOSE - Adult,GOSE - Adult,,GOSE - Adult
+GOSE - Pediatric,GOSE - Pediatric,,GOSE - Pediatric

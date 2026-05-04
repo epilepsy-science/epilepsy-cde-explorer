@@ -42,7 +42,7 @@ const DEFAULT_SOURCE_DIRS = [
   'data/demo',
   'data/nlm-ninds-disease-epilepsy',
   'data/ninds-epilepsy',
-  'data/pte-clinical',
+  'data/pte-clinical-2',
 ];
 
 const cliArgs = process.argv.slice(2);

@@ -1,0 +1,10 @@
+{
+  "source_key": "pte-clinical",
+  "label": "PTE Clinical CDEs",
+  "study_type": "Clinical",
+  "generated_at": "2026-05-04T01:52:52.493Z",
+  "cde_count": 315,
+  "crf_count": 22,
+  "classification_count": 320,
+  "bundle_count": 44
+}

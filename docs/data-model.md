@@ -348,7 +348,7 @@ and falls back to permissive defaults on failure.
 1. **Build an extractor** under `scripts/`. It reads upstream data and
    writes `data/<source>/metadata/...` matching the layout above. Look at
    `fetch-ninds-epilepsy.mjs` (live API extraction),
-   `fetch-nlm-cde.mjs` (live API), `transform-pte-clinical.mjs` (CSV input),
+   `fetch-nlm-cde.mjs` (live API), `transform-pte-clinical-2.mjs` (CSV input),
    or `generate-demo-data.mjs` (synthetic) for templates.
 2. **Emit one provenance record** with a unique `source_key`. Pick a value
    for `study_type` if the whole source is single-context.
