@@ -18,6 +18,12 @@ import {
   type JsonSchemaCdeInput,
   type JsonSchemaBundleInput,
 } from '@/utils/jsonSchemaExport';
+import {
+  buildOdmXml,
+  downloadOdmXml,
+  type OdmCdeInput,
+  type OdmBundleInput,
+} from '@/utils/cdiscOdmExport';
 import type { PdfCdeInput, PdfBundleInput } from '@/utils/pdfExport';
 import { ElMessage, ElMessageBox, ElNotification } from 'element-plus';
 import { trackEvent } from '@/api/analytics';
@@ -495,6 +501,39 @@ async function exportToPdf() {
   }
 }
 
+function exportToOdm() {
+  if (!crf.value) return;
+  const cdesByRef = cdeByName.value as unknown as Map<string, OdmCdeInput>;
+  const bundlesByRef = bundleByName.value as unknown as Map<string, OdmBundleInput>;
+  const { xml, fieldCount, missingRefs } = buildOdmXml(
+    crf.value,
+    cdesByRef,
+    bundlesByRef,
+  );
+  if (fieldCount === 0) {
+    ElMessage.warning('Nothing to export — this CRF has no resolvable fields.');
+    return;
+  }
+  downloadOdmXml(crf.value, xml);
+
+  trackEvent('cdisc_odm_exported', {
+    crf_source: crf.value.source,
+    field_count: fieldCount,
+    missing_refs_count: missingRefs.length,
+  });
+
+  if (missingRefs.length) {
+    ElNotification({
+      type: 'warning',
+      title: 'Exported with missing refs',
+      message: `Skipped ${missingRefs.length} unresolved item(s). First: ${missingRefs[0]}`,
+      duration: 6000,
+    });
+  } else {
+    ElMessage.success(`Exported ${fieldCount} fields to CDISC ODM-XML.`);
+  }
+}
+
 function exportToJsonSchema() {
   if (!crf.value) return;
   const cdesByRef = cdeByName.value as unknown as Map<string, JsonSchemaCdeInput>;
@@ -579,6 +618,7 @@ function exportToJsonSchema() {
               @command="(cmd: string) => {
                 if (cmd === 'redcap') exportToRedcap();
                 else if (cmd === 'json-schema') exportToJsonSchema();
+                else if (cmd === 'cdisc-odm') exportToOdm();
                 else if (cmd === 'pdf') exportToPdf();
               }"
             >
@@ -597,6 +637,9 @@ function exportToJsonSchema() {
                   </el-dropdown-item>
                   <el-dropdown-item command="json-schema">
                     JSON Schema (draft 2020-12)
+                  </el-dropdown-item>
+                  <el-dropdown-item command="cdisc-odm">
+                    CDISC ODM-XML (v2)
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
