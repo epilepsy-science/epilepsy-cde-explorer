@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import type { CdeRow } from '@/types';
+// Reads only the disease_* flags which exist with identical shape on both
+// CdeRow (per-context) and CdeCanonicalRow (aggregated). Take a minimal
+// pick-type so the cell works for either shape without coupling to either
+// concrete row type.
+interface DiseaseScopeRow {
+  disease_agnostic: 'Y' | 'N' | null;
+  disease_neurotrauma: 'Y' | 'N' | null;
+  disease_tbi: 'Y' | 'N' | null;
+  disease_pte: 'Y' | 'N' | null;
+  disease_sci: 'Y' | 'N' | null;
+}
 
-defineProps<{ row: CdeRow }>();
+defineProps<{ row: DiseaseScopeRow }>();
 </script>
 
 <template>

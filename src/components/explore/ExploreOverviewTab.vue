@@ -25,7 +25,7 @@ const loading = ref(false);
 // Heatmap row dimension — what each row groups by. Tier stays on the columns
 // (3 fixed buckets) so this dimension can have many values without making
 // the heatmap unreadably wide.
-type GroupBy = 'domain' | 'subdomain' | 'category' | 'source';
+type GroupBy = 'domain' | 'subdomain' | 'source';
 const groupBy = ref<GroupBy>('domain');
 
 // Group dimensions read from the CDE-level taxonomy columns, NOT the
@@ -37,7 +37,6 @@ const groupBy = ref<GroupBy>('domain');
 const GROUP_BY_OPTIONS: Array<{ key: GroupBy; label: string; sqlExpr: string }> = [
   { key: 'domain', label: 'Domain', sqlExpr: `COALESCE(cde_domain, 'Unassigned')` },
   { key: 'subdomain', label: 'Subdomain', sqlExpr: `COALESCE(cde_subdomain, 'Unassigned')` },
-  { key: 'category', label: 'Category', sqlExpr: `COALESCE(cde_category, 'Unassigned')` },
   { key: 'source', label: 'Source', sqlExpr: `COALESCE(origins, 'Unknown')` },
 ];
 
@@ -128,29 +127,36 @@ async function load() {
     const groupExpr = groupBySqlExpr.value;
     const [tiers, heat, domainBreakdown, sourceBreakdown] = await Promise.all([
       query<{ tier: string; n: number }>(
-        `SELECT ${tierExpr} AS tier, count(*) AS n FROM cde_full ${where} GROUP BY ${tierExpr}`,
+        `SELECT ${tierExpr} AS tier, count(*) AS n FROM cde_canonical ${where} GROUP BY ${tierExpr}`,
       ),
+      // Heatmap stays on cde_full (per-context) so a CDE that spans multiple
+      // domains contributes one cell per domain — the richer "coverage"
+      // visualization. count(DISTINCT cde_id) prevents double-counting when
+      // the same CDE appears multiple times within the same (tier, group)
+      // bucket via different classifications.
       query<HeatCell>(`
         SELECT
           ${tierExpr} AS tier,
           ${groupExpr} AS "group",
-          count(*) AS cde_count
+          count(DISTINCT cde_id) AS cde_count
         FROM cde_full
         ${where}
         GROUP BY ${tierExpr}, ${groupExpr}
         HAVING ${tierExpr} IN ('Core', 'Recommended', 'Supplemental')
       `),
+      // Domain pie: per-domain CDE coverage. cde_full so a CDE that spans
+      // multiple domains contributes to each (matches the heatmap semantics).
+      // count(DISTINCT cde_id) prevents double-counting within a domain.
       query<{ label: string; n: number }>(`
-        SELECT COALESCE(cde_domain, 'Unassigned') AS label, count(*) AS n
+        SELECT COALESCE(cde_domain, 'Unassigned') AS label, count(DISTINCT cde_id) AS n
         FROM cde_full ${where}
         GROUP BY COALESCE(cde_domain, 'Unassigned')
       `),
       // Origins is the canonical-dedup label list (e.g. "NINDS Epilepsy · NLM
-      // CDE Repository") — bucket each CDE by the full set of sources it
-      // appeared in, so multi-source CDEs become their own slice.
+      // CDE Repository") — origins is per-CDE (intrinsic), so cde_canonical.
       query<{ label: string; n: number }>(`
         SELECT COALESCE(origins, 'Unknown') AS label, count(*) AS n
-        FROM cde_full ${where}
+        FROM cde_canonical ${where}
         GROUP BY COALESCE(origins, 'Unknown')
       `),
     ]);
@@ -213,9 +219,7 @@ const heatmapMatrix = computed(() => {
 });
 
 // Map the active groupBy + clicked row label into the CDE list filter shape.
-// `domain` and `source` are filterable on the /cdes route; subdomain and
-// category fall back to disease+tier filtering with the row label only used
-// for the URL search query string for now.
+// `domain` / `subdomain` / `source` are filterable on the /cdes route.
 function rowFilterFor(group: string): Record<string, string | undefined> {
   switch (groupBy.value) {
     case 'domain':
@@ -224,8 +228,6 @@ function rowFilterFor(group: string): Record<string, string | undefined> {
       return { source: group };
     case 'subdomain':
       return { subdomain: group };
-    case 'category':
-      return { category: group };
   }
 }
 

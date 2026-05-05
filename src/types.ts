@@ -1,5 +1,13 @@
+/** A row from `cde_full` — one row per (canonical CDE × classification ×
+ *  bundle). A CDE on multiple CRFs in different bundles surfaces as
+ *  multiple `CdeRow`s. Used by per-context views (Tree, Treemap, Bundle
+ *  detail, CRF detail) and review-session queries that need the
+ *  classification axis. For "one row per CDE" use `CdeCanonicalRow`. */
 export interface CdeRow {
   cde_id: string;
+  /** Classification id for THIS row's context; null when the CDE has no
+   *  classification at all. Distinguishes contextual rows for the same CDE. */
+  cls_id: string | null;
   cde_name: string;
   /** Pipe-joined alternate designations (NLM `designations[1..]`). Null when
    *  the source doesn't ship aliases (NINDS, demo, PTE-clinical). */
@@ -66,14 +74,14 @@ export interface CdeRow {
   bundle_category: string | null;
   bundle_working_group: string | null;
 
-  // CDE-level taxonomy from cde_full (COALESCE(cl.<col>, b.<col>)). Surfaces on
-  // every row regardless of whether the CDE belongs to a bundle.
+  // CDE-level taxonomy from cde_full (COALESCE(cl.<col>, b.<col>)). Surfaces
+  // on every row regardless of whether the CDE belongs to a bundle. There
+  // is no `cde_category` — `category` on cde_classification is per-context
+  // (almost always the CRF name) and bundles have their own `bundle_category`.
   cde_domain: string | null;
   cde_subdomain: string | null;
-  cde_category: string | null;
   /** Canonical hierarchical path, ` / `-delimited. e.g. "Demographics / Age".
-   *  Derived from domain/subdomain/category today; sources with deeper
-   *  taxonomies will eventually emit longer paths here. */
+   *  Derived from domain/subdomain. */
   cde_path: string | null;
 
   source_labels: string | null;
@@ -86,6 +94,92 @@ export interface CdeRow {
   study_types: string | null; // e.g. "Clinical" | "Preclinical" | "Clinical,Preclinical"
   study_type_count: number | null;
   canonical_key: string | null; // Used by the diff panel to fetch sibling source rows.
+}
+
+/** A row from `cde_canonical` — exactly one per canonical CDE. Multi-context
+ *  fields (bundle attribution, taxonomy paths) are pipe-joined; per-disease
+ *  flags are max-OR across contexts; per-disease tiers are the highest tier
+ *  observed across contexts. Used by per-CDE listings (the /cdes table,
+ *  Home tiles, Overview counts) and detail-drawer lookups. */
+export interface CdeCanonicalRow {
+  cde_id: string;
+  cde_name: string;
+  aliases: string | null;
+  cde_data_type: string;
+  cde_definition: string;
+  cde_source: string | null;
+  cde_type: string | null;
+  steward_org: string | null;
+  registration_status: string | null;
+  keywords: string | null;
+  preferred_question_text: string | null;
+
+  pv_labels: string | null;
+  pv_codes: string | null;
+  pv_definitions: string | null;
+  pv_code_systems: string | null;
+  pv_concept_identifiers: string | null;
+  pv_terminology_sources: string | null;
+  unit_of_measure: string | null;
+  refs: string | null;
+  nlm_identifier: string | null;
+  dec_identifier: string | null;
+  dec_terminology_source: string | null;
+  other_identifiers: string | null;
+
+  min_value: number | null;
+  max_value: number | null;
+  cde_origin: string | null;
+  population: string | null;
+  cdisc_domain: string | null;
+  cdisc_variable_name: string | null;
+  cdisc_variable_label: string | null;
+
+  // Disease scope: max-OR across all classification contexts. 'Y' if any
+  // context has the disease flagged.
+  disease_agnostic: 'Y' | 'N' | null;
+  disease_neurotrauma: 'Y' | 'N' | null;
+  disease_tbi: 'Y' | 'N' | null;
+  disease_pte: 'Y' | 'N' | null;
+  disease_sci: 'Y' | 'N' | null;
+  disease_epilepsy: 'Y' | 'N' | null;
+
+  // Per-disease tier: highest tier observed across contexts.
+  classification_agnostic: string | null;
+  classification_neurotrauma: string | null;
+  classification_tbi: string | null;
+  classification_pte: string | null;
+  classification_sci: string | null;
+  classification_epilepsy: string | null;
+
+  // Pipe-joined distinct values across contexts.
+  cde_domain: string | null;
+  cde_subdomain: string | null;
+  cde_paths: string | null;
+
+  bundle_ids: string | null;
+  bundle_names: string | null;
+  bundle_domains: string | null;
+  bundle_subdomains: string | null;
+  bundle_categories: string | null;
+  bundle_working_groups: string | null;
+  bundle_count: number;
+  context_count: number;
+
+  source_labels: string | null;
+  source_count: number | null;
+
+  /** Pipe-joined distinct variable_names across classification contexts.
+   *  Single-context CDEs render as one name; multi-context CDEs surface
+   *  every variant. Null when no classification has set a variable_name. */
+  variable_name: string | null;
+
+  origins: string | null;
+  origin_keys: string | null;
+  origin_count: number | null;
+  study_types: string | null;
+  study_type_count: number | null;
+  canonical_key: string | null;
 }
 
 export interface BundleRow {

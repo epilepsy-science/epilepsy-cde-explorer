@@ -10,7 +10,9 @@ import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
 import {
   CLASSIFICATION_OPTIONS,
   isActiveTier,
+  splitPipe,
   type CdeRow,
+  type CdeCanonicalRow,
 } from '@/types';
 
 const route = useRoute();
@@ -49,7 +51,6 @@ const cdeIdFilter = ref<string | null>(null);
 const originFilter = ref<string[]>([]);
 const domainFilter = ref<string | null>(null);
 const subdomainFilter = ref<string | null>(null);
-const categoryFilter = ref<string | null>(null);
 
 function strParam(v: RawQueryValue): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null;
@@ -64,16 +65,18 @@ function syncFiltersFromQuery() {
   originFilter.value = csvParam(route.query.origin);
   domainFilter.value = strParam(route.query.domain);
   subdomainFilter.value = strParam(route.query.subdomain);
-  categoryFilter.value = strParam(route.query.category);
 }
 syncFiltersFromQuery();
-const rows = ref<CdeRow[]>([]);
+// Flat-mode rows are CdeCanonicalRow (one row per canonical CDE);
+// grouped-mode child rows are CdeRow (per-context, allowing the same
+// CDE to appear under multiple bundles).
+const rows = ref<CdeCanonicalRow[]>([]);
 const total = ref(0);
 const loading = ref(false);
 const page = ref(1);
 const pageSize = ref(20);
 
-const selectedCde = ref<CdeRow | null>(null);
+const selectedCde = ref<CdeCanonicalRow | null>(null);
 const drawerOpen = ref(false);
 const viewMode = ref<'grouped' | 'flat' | 'concept'>('grouped');
 // True iff the active dataset has any bundles at all. When false, the grouped
@@ -173,10 +176,6 @@ function buildWhere(): { where: string; params: unknown[] } {
     clauses.push(`cde_subdomain = ?`);
     params.push(subdomainFilter.value);
   }
-  if (categoryFilter.value) {
-    clauses.push(`cde_category = ?`);
-    params.push(categoryFilter.value);
-  }
 
   const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
   return { where, params };
@@ -184,13 +183,24 @@ function buildWhere(): { where: string; params: unknown[] } {
 
 async function loadFlat() {
   const { where, params } = buildWhere();
+  // Filters are written against cde_full's per-context columns (variable_name,
+  // bundle_id, cde_domain, …), but the result list shows one row per canonical
+  // CDE, so we filter in cde_full and project into cde_canonical via a
+  // matching-id subquery.
+  const matchingIds = where
+    ? `(SELECT DISTINCT cde_id FROM cde_full ${where})`
+    : null;
+  const idClause = matchingIds ? `WHERE cde_id IN ${matchingIds}` : '';
   const offset = (page.value - 1) * pageSize.value;
   const [dataRows, countRows] = await Promise.all([
-    query<CdeRow>(
-      `SELECT * FROM cde_full ${where} ORDER BY cde_name LIMIT ${pageSize.value} OFFSET ${offset}`,
+    query<CdeCanonicalRow>(
+      `SELECT * FROM cde_canonical ${idClause} ORDER BY cde_name LIMIT ${pageSize.value} OFFSET ${offset}`,
       params,
     ),
-    query<{ n: number }>(`SELECT count(*) AS n FROM cde_full ${where}`, params),
+    query<{ n: number }>(
+      `SELECT count(*) AS n FROM cde_canonical ${idClause}`,
+      params,
+    ),
   ]);
   rows.value = dataRows;
   treeRows.value = [];
@@ -506,7 +516,7 @@ watch(status, async (s) => {
 });
 
 watch(
-  [search, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, categoryFilter, originFilter, studyTypeFilter, pageSize, viewMode],
+  [search, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, originFilter, studyTypeFilter, pageSize, viewMode],
   () => {
     page.value = 1;
     load();
@@ -529,13 +539,26 @@ function isHeaderRow(row: TreeRow): row is HeaderRow {
   return isBundleRow(row) || isConceptRow(row);
 }
 
-function handleRowClick(row: TreeRow) {
+async function handleRowClick(row: TreeRow) {
   if (isHeaderRow(row)) {
     // Click on a parent row toggles expansion.
     tableRef.value?.toggleRowExpansion?.(row);
     return;
   }
-  selectedCde.value = row as unknown as CdeRow;
+  // Flat-mode rows arrive as CdeCanonicalRow (no `cls_id`); grouped/concept
+  // mode children arrive as per-context CdeRow. The drawer wants the
+  // canonical aggregate, so we re-fetch when the row is per-context.
+  const r = row as CdeRow | CdeCanonicalRow;
+  const isCanonical = !('cls_id' in r);
+  if (isCanonical) {
+    selectedCde.value = r as CdeCanonicalRow;
+  } else {
+    const found = await query<CdeCanonicalRow>(
+      `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
+      [r.cde_id],
+    );
+    selectedCde.value = found[0] ?? null;
+  }
   drawerOpen.value = true;
 }
 
@@ -610,10 +633,6 @@ function clearDomainFilter() {
 function clearSubdomainFilter() {
   subdomainFilter.value = null;
   clearQueryParam('subdomain');
-}
-function clearCategoryFilter() {
-  categoryFilter.value = null;
-  clearQueryParam('category');
 }
 function clearCdeIdFilter() {
   cdeIdFilter.value = null;
@@ -691,12 +710,6 @@ watch(originFilter, (selected) => {
             · subdomain:
             <el-tag size="small" closable type="info" @close="clearSubdomainFilter">
               {{ subdomainFilter }}
-            </el-tag>
-          </template>
-          <template v-if="categoryFilter">
-            · category:
-            <el-tag size="small" closable type="info" @close="clearCategoryFilter">
-              {{ categoryFilter }}
             </el-tag>
           </template>
           <template v-if="cdeIdFilter">
@@ -1020,13 +1033,15 @@ watch(originFilter, (selected) => {
       </el-table-column>
       <el-table-column label="Bundle" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">
-          <router-link
-            v-if="row.bundle_id"
-            :to="`/bundles/${row.bundle_id}`"
-            @click.stop
-          >
-            {{ row.bundle_name }}
-          </router-link>
+          <template v-if="row.bundle_count > 0">
+            <router-link
+              v-for="(bid, i) in splitPipe(row.bundle_ids)"
+              :key="bid"
+              :to="`/bundles/${bid}`"
+              @click.stop
+              :style="{ marginRight: i < row.bundle_count - 1 ? '0.5em' : '0' }"
+            >{{ splitPipe(row.bundle_names)[i] }}</router-link>
+          </template>
           <span v-else class="muted">—</span>
         </template>
       </el-table-column>

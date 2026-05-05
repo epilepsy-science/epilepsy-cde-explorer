@@ -4,7 +4,7 @@ import { useDuckDB } from '@/composables/useDuckDB';
 import { useDiseaseLens } from '@/composables/useDiseaseLens';
 import { useStudyType } from '@/composables/useStudyType';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
-import type { CdeRow } from '@/types';
+import type { CdeRow, CdeCanonicalRow } from '@/types';
 
 const { status, query } = useDuckDB();
 const { lens, option, clause } = useDiseaseLens();
@@ -30,7 +30,7 @@ async function load() {
     rows.value = await query<CdeRow>(`
       SELECT * FROM cde_full
       ${where}
-      ORDER BY cde_path, bundle_name, cde_name
+      ORDER BY cde_domain, cde_subdomain, bundle_name, cde_name
     `);
   } finally {
     loading.value = false;
@@ -40,7 +40,7 @@ async function load() {
 watch([status, lens, studyTypeFilter], load);
 onMounted(load);
 
-const selectedCde = ref<CdeRow | null>(null);
+const selectedCde = ref<CdeCanonicalRow | null>(null);
 const cdeDrawerOpen = ref(false);
 
 interface TreeNode {
@@ -60,25 +60,46 @@ const PATH_SEP = ' / ';
 // more nesting). At the leaf segment of a path, bundles appear as named
 // interior nodes containing their CDEs; unbundled CDEs sit alongside.
 const tree = computed<TreeNode[]>(() => {
-  type BundleBucket = { bundle_id: string; bundle_name: string; cdes: CdeRow[] };
-  // Each path → its bundles + its unbundled CDEs.
-  type Bucket = { bundles: Map<string, BundleBucket>; unbundled: CdeRow[] };
+  type BundleBucket = {
+    bundle_id: string;
+    bundle_name: string;
+    cdes: CdeRow[];
+    seenCdes: Set<string>;
+  };
+  // Each path → its bundles + its unbundled CDEs. seenCdes dedupes a CDE
+  // that has multiple classifications within the same (domain, subdomain)
+  // path — surface it once per bucket. CDEs that span DIFFERENT paths
+  // still appear under each, since that's a real multi-domain placement.
+  type Bucket = {
+    bundles: Map<string, BundleBucket>;
+    unbundled: CdeRow[];
+    seenUnbundled: Set<string>;
+  };
   const byPath = new Map<string, Bucket>();
   for (const r of rows.value) {
     const path = r.cde_path?.trim() || 'Unassigned';
     let bucket = byPath.get(path);
     if (!bucket) {
-      bucket = { bundles: new Map(), unbundled: [] };
+      bucket = { bundles: new Map(), unbundled: [], seenUnbundled: new Set() };
       byPath.set(path, bucket);
     }
     if (r.bundle_id && r.bundle_name) {
       let b = bucket.bundles.get(r.bundle_id);
       if (!b) {
-        b = { bundle_id: r.bundle_id, bundle_name: r.bundle_name, cdes: [] };
+        b = {
+          bundle_id: r.bundle_id,
+          bundle_name: r.bundle_name,
+          cdes: [],
+          seenCdes: new Set(),
+        };
         bucket.bundles.set(r.bundle_id, b);
       }
-      b.cdes.push(r);
-    } else {
+      if (!b.seenCdes.has(r.cde_id)) {
+        b.seenCdes.add(r.cde_id);
+        b.cdes.push(r);
+      }
+    } else if (!bucket.seenUnbundled.has(r.cde_id)) {
+      bucket.seenUnbundled.add(r.cde_id);
       bucket.unbundled.push(r);
     }
   }
@@ -156,9 +177,15 @@ const tree = computed<TreeNode[]>(() => {
     .sort((a, b) => b.count - a.count) as TreeNode[];
 });
 
-function handleNodeClick(node: TreeNode) {
+async function handleNodeClick(node: TreeNode) {
   if (node.cde) {
-    selectedCde.value = node.cde;
+    // Tree leaves carry per-context cde_full rows; fetch the canonical
+    // aggregate so the drawer shows merged disease/tier/bundle attribution.
+    const found = await query<CdeCanonicalRow>(
+      `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
+      [node.cde.cde_id],
+    );
+    selectedCde.value = found[0] ?? null;
     cdeDrawerOpen.value = true;
   }
   // Bundle and category/subdomain/domain nodes just expand — no navigation.

@@ -95,21 +95,32 @@ more opinionated than NLM. When importing from NLM-only sources we leave
 the bundle layer empty; when curated sources (NT-PRECEDS, PTE Clinical)
 ship a bundle column we surface it.
 
-## Why we collapse classifications across CRFs in `cde_full`
+## Two views: per-context vs. per-canonical CDE
 
-The `cde_full` view picks one classification per canonical CDE
-(first-source wins) and exposes its disease/tier/taxonomy columns. A CDE
-that's classified differently on five forms gets only the first
-classification's tier surfaced.
+The runtime exposes both shapes so consumers ask for what they actually
+want:
 
-This is a deliberate simplification for the dashboard's grouped views
-(Tree, Treemap, /cdes table). The full `cde_classification` table is
-still queryable when a view needs all reference rows — e.g. the CRF
-detail page, the review session, and any future per-form export.
+- **`cde_full`** — one row per `(canonical CDE × classification × bundle)`.
+  Honors the model: a CDE that's classified on three CRFs in two bundles
+  surfaces as multiple rows. Used by Tree, Treemap, BundleDetail, CrfDetail
+  — anywhere "show this CDE under each context it appears in" is the
+  desired behavior.
+- **`cde_canonical`** — exactly one row per canonical CDE. Per-context
+  fields are aggregated:
+  - `disease_<scope>` = `'Y'` if any context flags it
+  - `classification_<scope>` = highest tier across contexts
+    (Core > Recommended > Supplemental > Not Applicable)
+  - `bundle_ids` / `bundle_names` / `cde_paths` = pipe-joined distinct
+    values across contexts
+  - `bundle_count`, `context_count` = simple counts
+  Used by the /cdes table, Home tiles, Overview counts, and detail-drawer
+  lookups — anywhere "one row per CDE" is the desired behavior.
 
-This collapse is *not* aligned with ODM (which preserves every reference
-distinctly). It's a UI tradeoff. Revisit if curators ever need to see
-per-CRF tier conflicts at the canonical-row level.
+This split aligns with ODM v2's principle that contextual overlays live on
+the reference (`ItemRef` ↔ classification), not on the canonical element
+(`ItemDef` ↔ CDE). The earlier dashboard collapsed multi-context CDEs into
+a single row in `cde_full`, hiding the multi-bundle / multi-tier truth;
+the runtime now exposes it everywhere it's relevant.
 
 ## References
 

@@ -16,8 +16,9 @@ The dashboard's data layer has three tiers:
    `public/data/<source>/`, plus globally-derived files at the data root.
    These are what the browser fetches.
 3. **DuckDB views** — `src/composables/useDuckDB.ts` registers the parquets
-   in DuckDB-WASM and builds reconciled views (`cde`, `cde_full`, `concept`,
-   `cde_represents_concept`, …) the rest of the app queries.
+   in DuckDB-WASM and builds reconciled views (`cde`, `cde_full`,
+   `cde_canonical`, `concept`, `cde_represents_concept`, …) the rest of
+   the app queries.
 
 Sources never share IDs or coordinate identifiers; the integration logic
 reconciles them on a *canonical key* derived from semantically meaningful
@@ -258,26 +259,49 @@ don't share a structured identifier but use the same string.
   * `origin_count` — distinct source contribution count.
   * `study_types`, `study_type_count` — same shape, for study-type spread.
 
-### `cde_full`
+### `cde_full` and `cde_canonical`
 
-The canonical CDE rows joined to their picked classification (preferring
-the first-source classification that classifies the canonical id), bundle
-membership (via `PART_OF` relationships), and provenance (via
-`SOURCED_FROM`). This is what every dashboard query reads from. It exposes:
+The runtime exposes two views over the canonical CDE rows; consumers
+choose based on whether they want one-row-per-CDE or one-row-per-context.
 
-* The CDE's identity columns (`cde_id`, `canonical_key`, `cde_name`, …).
-* All classification fields, including disease flags + per-disease tier.
-* Bundle attribution (`bundle_id`, `bundle_name`, `bundle_domain`, …).
-* The hierarchical taxonomy (`cde_domain`, `cde_subdomain`, `cde_category`),
+**`cde_full`** — one row per `(canonical CDE × classification × bundle)`.
+A CDE classified on N CRFs in M bundles surfaces as up to `N×M` rows. This
+is the per-context view; it's what the Explore overview heatmap, Tree tab,
+Treemap tab, BundleDetail page, and CRF preview rely on, and it's the
+shape that honors the underlying graph (a CDE can legitimately be
+classified differently on different forms or live in multiple bundles).
+
+* CDE identity columns (`cde_id`, `cls_id`, `canonical_key`, `cde_name`, …)
+* Per-context classification fields including disease flags + per-disease tier.
+* Per-context bundle attribution (`bundle_id`, `bundle_name`, `bundle_domain`, …).
+* Per-context taxonomy (`cde_domain`, `cde_subdomain`, `cde_category`),
   COALESCEd from the classification row first, then the bundle.
-* `cde_path` — `' / '`-delimited string of the populated taxonomy levels;
-  the canonical hierarchical path the tree view consumes. Sources with
-  shallower taxonomies emit shorter paths.
+* `cde_path` — `' / '`-delimited string of the populated taxonomy levels.
 * `origins`, `origin_keys`, `study_types`, `_source_key` — used for filters.
 
-`cde_full` is used by every grouped view: the `/cdes` table, the Explore
-overview heatmap, the Tree tab, the Treemap tab, the review session
-candidate query, and the concept registry derivation.
+**`cde_canonical`** — exactly one row per canonical CDE; aggregates
+`cde_full` across contexts. Per-disease flags use `MAX('Y'/'N')` (true if
+any context flags it), per-disease tiers pick the highest tier observed
+(Core > Recommended > Supplemental > Not Applicable), and bundle/path
+fields are pipe-joined distinct values.
+
+* All identity + intrinsic fields, identical to `cde_full`'s for
+  single-context CDEs.
+* `bundle_ids`, `bundle_names`, `bundle_domains`, `bundle_subdomains`,
+  `bundle_categories`, `bundle_working_groups` — pipe-joined.
+* `cde_paths` — pipe-joined distinct full paths.
+* `bundle_count`, `context_count` — counts of distinct bundles and
+  classification contexts a CDE participates in.
+
+This is what the /cdes table, Home tiles, Explore overview totals,
+detail-drawer lookups, and review-session standalone-CDE enumeration
+read from.
+
+The earlier dashboard collapsed multi-context membership into a single row
+in `cde_full` via `DISTINCT ON`. The split surfaces what was previously
+hidden, and aligns with ODM v2's principle that contextual overlays live
+on the reference, not the canonical element. See
+[`standards-alignment.md`](./standards-alignment.md).
 
 ### Relationships across sources
 

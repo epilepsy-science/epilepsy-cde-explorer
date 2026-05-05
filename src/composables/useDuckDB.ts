@@ -340,16 +340,12 @@ async function init(): Promise<DuckDBHandle> {
     );
     const hasClsDomain = clsCols.has('domain');
     const hasClsSubdomain = clsCols.has('subdomain');
-    const hasClsCategory = clsCols.has('category');
     const hasClsEpilepsy = clsCols.has('disease_epilepsy');
 
     const domainExpr = hasClsDomain ? 'COALESCE(cl.domain, b.domain)' : 'b.domain';
     const subdomainExpr = hasClsSubdomain
       ? 'COALESCE(cl.subdomain, b.subdomain)'
       : 'b.subdomain';
-    const categoryExpr = hasClsCategory
-      ? 'COALESCE(cl.category, b.category)'
-      : 'b.category';
     const diseaseEpilepsyExpr = hasClsEpilepsy
       ? 'cl.disease_epilepsy'
       : `CAST(NULL AS VARCHAR)`;
@@ -357,17 +353,25 @@ async function init(): Promise<DuckDBHandle> {
       ? 'cl.classification_epilepsy'
       : `CAST(NULL AS VARCHAR)`;
 
-    // Denormalized CDE view — same shape as before, but `relationships` now
-    // points at canonical CDE ids, and `cde` is the deduplicated canonical view.
+    // Denormalized CDE view: ONE ROW PER (canonical CDE × classification ×
+    // bundle). A CDE that's classified on N CRFs in M different bundles
+    // surfaces as multiple rows here — Tree, Treemap, BundleDetail and
+    // CrfDetail all benefit from this. Consumers that want one row per CDE
+    // (the /cdes table, Home tiles, Overview counts, name lookups) should
+    // query `cde_canonical` instead.
+    //
+    // Was previously DISTINCT ON the classification + bundle, which silently
+    // hid cross-context membership; the model permits multi-context, so the
+    // view now exposes it. See docs/standards-alignment.md.
     await conn.query(`
       CREATE OR REPLACE VIEW cde_full AS
       WITH cls_of_cde AS (
-        SELECT DISTINCT ON (r.target_id) r.target_id AS cde_id, r.source_id AS cls_id
+        SELECT r.target_id AS cde_id, r.source_id AS cls_id
         FROM relationships r
         WHERE r.type = 'CLASSIFIES'
       ),
       bundle_of_cls AS (
-        SELECT DISTINCT ON (r.source_id) r.source_id AS cls_id, r.target_id AS bundle_id
+        SELECT r.source_id AS cls_id, r.target_id AS bundle_id
         FROM relationships r
         WHERE r.type = 'PART_OF'
       ),
@@ -382,6 +386,7 @@ async function init(): Promise<DuckDBHandle> {
       )
       SELECT
         CAST(c.id AS VARCHAR)         AS cde_id,
+        k.cls_id                      AS cls_id,
         c.canonical_key,
         c.cde_name,
         c.aliases,
@@ -438,15 +443,15 @@ async function init(): Promise<DuckDBHandle> {
         ${classificationEpilepsyExpr} AS classification_epilepsy,
         ${domainExpr}    AS cde_domain,
         ${subdomainExpr} AS cde_subdomain,
-        ${categoryExpr}  AS cde_category,
-        -- Canonical hierarchical path. Sources with shallower taxonomies
-        -- (NINDS = domain + subdomain only) emit shorter paths; sources with
-        -- deeper hierarchies fill in more segments here when they're added.
-        -- The tree view in ExploreTreeTab splits on ' / ' to render N levels.
+        -- Canonical hierarchical path: domain / subdomain only. The
+        -- "category" column on cde_classification is per-context (almost
+        -- always equal to the CRF/form name) and isn't a real CDE-intrinsic
+        -- taxonomy level. Bundle's category is a different concept
+        -- (bundle-level grouping) and stays on bundle_category.
         NULLIF(
           array_to_string(
             list_filter(
-              [${domainExpr}, ${subdomainExpr}, ${categoryExpr}],
+              [${domainExpr}, ${subdomainExpr}],
               x -> x IS NOT NULL AND TRIM(x) != ''
             ),
             ' / '
@@ -467,6 +472,107 @@ async function init(): Promise<DuckDBHandle> {
       LEFT JOIN bundle_of_cls bc  ON bc.cls_id = k.cls_id
       LEFT JOIN bundle b          ON CAST(b.id AS VARCHAR) = bc.bundle_id
       LEFT JOIN sources s         ON s.cde_id = CAST(c.id AS VARCHAR)
+    `);
+
+    // One-row-per-canonical-CDE rollup of cde_full. Classification +
+    // bundle fields are aggregated across every context the CDE appears
+    // in:
+    //   - disease_X = 'Y' if ANY classification has 'Y' for that disease
+    //   - classification_X = HIGHEST tier across classifications
+    //     (Core > Recommended > Supplemental > Not Applicable)
+    //   - bundle_names / bundle_ids / cde_paths = pipe-joined distinct
+    //     values across contexts
+    //   - bundle_count = how many distinct bundles the CDE appears in
+    // Used by the CDE list, Home tiles, Overview counts, and any other
+    // surface that wants "one row per CDE" semantics.
+    const tierRank = `CASE coalesce(_tier, '')
+      WHEN 'Core' THEN 4
+      WHEN 'Recommended' THEN 3
+      WHEN 'Supplemental' THEN 2
+      WHEN 'Not Applicable' THEN 1
+      ELSE 0 END`;
+    // Build the highest-tier expression for one disease column. We pick
+    // the row with the largest tier rank via arg_max, then return its
+    // tier string (or NULL if no row had a non-empty tier).
+    const highestTier = (col: string) =>
+      `NULLIF(arg_max(coalesce(${col}, ''), ${tierRank.replace('_tier', col)}), '')`;
+    await conn.query(`
+      CREATE OR REPLACE VIEW cde_canonical AS
+      SELECT
+        cde_id,
+        any_value(canonical_key)         AS canonical_key,
+        any_value(cde_name)              AS cde_name,
+        any_value(aliases)               AS aliases,
+        any_value(cde_data_type)         AS cde_data_type,
+        any_value(cde_definition)        AS cde_definition,
+        any_value(cde_source)            AS cde_source,
+        any_value(cde_type)              AS cde_type,
+        any_value(steward_org)           AS steward_org,
+        any_value(registration_status)   AS registration_status,
+        any_value(keywords)              AS keywords,
+        any_value(preferred_question_text) AS preferred_question_text,
+        any_value(pv_labels)             AS pv_labels,
+        any_value(pv_codes)              AS pv_codes,
+        any_value(pv_definitions)        AS pv_definitions,
+        any_value(pv_code_systems)       AS pv_code_systems,
+        any_value(pv_concept_identifiers) AS pv_concept_identifiers,
+        any_value(pv_terminology_sources) AS pv_terminology_sources,
+        any_value(unit_of_measure)       AS unit_of_measure,
+        any_value(min_value)             AS min_value,
+        any_value(max_value)             AS max_value,
+        any_value(cde_origin)            AS cde_origin,
+        any_value(population)            AS population,
+        any_value(cdisc_domain)          AS cdisc_domain,
+        any_value(cdisc_variable_name)   AS cdisc_variable_name,
+        any_value(cdisc_variable_label)  AS cdisc_variable_label,
+        any_value(refs)                  AS refs,
+        any_value(nlm_identifier)        AS nlm_identifier,
+        any_value(dec_identifier)        AS dec_identifier,
+        any_value(dec_terminology_source) AS dec_terminology_source,
+        any_value(other_identifiers)     AS other_identifiers,
+        any_value(origins)               AS origins,
+        any_value(origin_keys)           AS origin_keys,
+        any_value(origin_count)          AS origin_count,
+        any_value(study_types)           AS study_types,
+        any_value(study_type_count)      AS study_type_count,
+        any_value(source_labels)         AS source_labels,
+        any_value(source_count)          AS source_count,
+        -- Per-classification field surfaced on the canonical row so per-CDE
+        -- consumers (CRF preview, JSON Schema export) can render a stable
+        -- variable name. When a CDE varies its variable_name across
+        -- contexts, the pipe-joined value preserves the divergence.
+        nullif(string_agg(DISTINCT variable_name, '|'), '') AS variable_name,
+        -- Disease scope: 'Y' if ANY context flags this disease.
+        max(disease_agnostic)            AS disease_agnostic,
+        max(disease_neurotrauma)         AS disease_neurotrauma,
+        max(disease_tbi)                 AS disease_tbi,
+        max(disease_pte)                 AS disease_pte,
+        max(disease_sci)                 AS disease_sci,
+        max(disease_epilepsy)            AS disease_epilepsy,
+        -- Per-disease tier: highest across contexts.
+        ${highestTier('classification_agnostic')}     AS classification_agnostic,
+        ${highestTier('classification_neurotrauma')}  AS classification_neurotrauma,
+        ${highestTier('classification_tbi')}          AS classification_tbi,
+        ${highestTier('classification_pte')}          AS classification_pte,
+        ${highestTier('classification_sci')}          AS classification_sci,
+        ${highestTier('classification_epilepsy')}     AS classification_epilepsy,
+        -- Taxonomy: pipe-joined distinct paths across contexts. Single-
+        -- context CDEs render as one path; multi-context CDEs surface
+        -- their full set so the table can show all alignments.
+        nullif(string_agg(DISTINCT cde_domain, '|'), '')      AS cde_domain,
+        nullif(string_agg(DISTINCT cde_subdomain, '|'), '')   AS cde_subdomain,
+        nullif(string_agg(DISTINCT cde_path, '|'), '')        AS cde_paths,
+        -- Bundle attribution: pipe-joined distinct bundles + count.
+        nullif(string_agg(DISTINCT bundle_id, '|'), '')       AS bundle_ids,
+        nullif(string_agg(DISTINCT bundle_name, '|'), '')     AS bundle_names,
+        nullif(string_agg(DISTINCT bundle_domain, '|'), '')   AS bundle_domains,
+        nullif(string_agg(DISTINCT bundle_subdomain, '|'), '') AS bundle_subdomains,
+        nullif(string_agg(DISTINCT bundle_category, '|'), '') AS bundle_categories,
+        nullif(string_agg(DISTINCT bundle_working_group, '|'), '') AS bundle_working_groups,
+        count(DISTINCT bundle_id) FILTER (WHERE bundle_id IS NOT NULL) AS bundle_count,
+        count(DISTINCT cls_id)    FILTER (WHERE cls_id IS NOT NULL)    AS context_count
+      FROM cde_full
+      GROUP BY cde_id
     `);
 
     // Bundle roll-up

@@ -5,7 +5,7 @@ import { useCrfStore } from '@/composables/useCrfStore';
 import { useDuckDB } from '@/composables/useDuckDB';
 import ClassificationPill from '@/components/ClassificationPill.vue';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
-import { CRF_BADGE_DESCRIPTIONS, crfBadge, isActiveTier, splitPipe, type CdeRow, type CrfItem, type CrfRecord } from '@/types';
+import { CRF_BADGE_DESCRIPTIONS, crfBadge, isActiveTier, splitPipe, type CdeRow, type CdeCanonicalRow, type CrfItem, type CrfRecord } from '@/types';
 import {
   buildRedcapCsv,
   downloadRedcapCsv,
@@ -122,9 +122,28 @@ async function resolveRefs() {
 
   if (cdeRefs.size) {
     const placeholders = [...cdeRefs].map(() => '?').join(',');
+    // Resolve via cde_canonical (one row per CDE) so multi-context CDEs
+    // don't leak duplicate Map entries. The bundle_id surfaced here is the
+    // FIRST bundle from the pipe-joined list — sufficient for the preview's
+    // render branch on "this CDE has a bundle."
     tasks.push(
-      query<ResolvedCde>(
-        `SELECT * FROM cde_full WHERE cde_name IN (${placeholders})`,
+      query<
+        ResolvedCde & {
+          bundle_ids: string | null;
+          bundle_names: string | null;
+        }
+      >(
+        `SELECT cde_id, cde_name, variable_name, cde_data_type, cde_definition,
+                preferred_question_text, unit_of_measure,
+                pv_labels, pv_codes, pv_definitions,
+                min_value, max_value, nlm_identifier,
+                classification_agnostic, classification_neurotrauma,
+                classification_tbi, classification_pte, classification_sci,
+                classification_epilepsy,
+                NULLIF(split_part(coalesce(bundle_ids, ''), '|', 1), '') AS bundle_id,
+                NULLIF(split_part(coalesce(bundle_names, ''), '|', 1), '') AS bundle_name,
+                bundle_ids, bundle_names
+         FROM cde_canonical WHERE cde_name IN (${placeholders})`,
         [...cdeRefs],
       ).then((rows) => {
         const m = new Map<string, ResolvedCde>();
@@ -323,11 +342,17 @@ const renderedItems = computed<RenderedItem[]>(() => {
   });
 });
 
-const selectedCde = ref<CdeRow | null>(null);
+const selectedCde = ref<CdeCanonicalRow | null>(null);
 const cdeDrawerOpen = ref(false);
 
-function openCdeDrawer(cde: ResolvedCde) {
-  selectedCde.value = cde as unknown as CdeRow;
+async function openCdeDrawer(cde: ResolvedCde) {
+  // CRF items carry per-context resolved CDE rows; fetch the canonical
+  // aggregate so the drawer shows merged disease/tier/bundle attribution.
+  const found = await query<CdeCanonicalRow>(
+    `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
+    [cde.cde_id],
+  );
+  selectedCde.value = found[0] ?? null;
   cdeDrawerOpen.value = true;
 }
 

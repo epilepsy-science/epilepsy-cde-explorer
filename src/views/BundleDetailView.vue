@@ -7,7 +7,7 @@ import ClassificationPill from '@/components/ClassificationPill.vue';
 import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
 import AddToCrfButton from '@/components/AddToCrfButton.vue';
 import { DISEASE_OPTIONS } from '@/composables/useDiseaseLens';
-import type { BundleRow, CdeRow } from '@/types';
+import type { BundleRow, CdeRow, CdeCanonicalRow } from '@/types';
 
 const route = useRoute();
 const router = useRouter();
@@ -16,7 +16,7 @@ const { status, query } = useDuckDB();
 const bundle = ref<BundleRow | null>(null);
 const cdes = ref<CdeRow[]>([]);
 const loading = ref(false);
-const selectedCde = ref<CdeRow | null>(null);
+const selectedCde = ref<CdeCanonicalRow | null>(null);
 const drawerOpen = ref(false);
 
 const bundleId = computed(() => route.params.id as string);
@@ -46,8 +46,14 @@ onMounted(() => {
   if (status.value === 'ready') load();
 });
 
-function openRow(row: CdeRow) {
-  selectedCde.value = row;
+async function openRow(row: CdeRow) {
+  // Bundle detail rows are per-context cde_full rows; the drawer wants the
+  // canonical aggregate, so fetch by cde_id before opening.
+  const found = await query<CdeCanonicalRow>(
+    `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
+    [row.cde_id],
+  );
+  selectedCde.value = found[0] ?? null;
   drawerOpen.value = true;
 }
 

@@ -64,9 +64,14 @@ async function load() {
     const coreSum = TIER_COLS
       .map((c) => `(CASE WHEN ${c} = 'Core' THEN 1 ELSE 0 END)`)
       .join(' + ');
-    const [totals, tiers, topC, disease] = await Promise.all([
-      query<{ n: number; b: number }>(
-        `SELECT count(*) AS n, count(DISTINCT bundle_id) AS b FROM cde_full`,
+    // Counts must be one-row-per-CDE — cde_full has multiple rows per CDE
+    // (one per classification context), so we use cde_canonical for tile
+    // numbers. Bundle count uses cde_full DISTINCT since a bundle's
+    // existence is independent of CDE row count.
+    const [totals, bundleTotals, tiers, topC, disease] = await Promise.all([
+      query<{ n: number }>(`SELECT count(*) AS n FROM cde_canonical`),
+      query<{ b: number }>(
+        `SELECT count(DISTINCT bundle_id) AS b FROM cde_full WHERE bundle_id IS NOT NULL`,
       ),
       query<{ tier: string; n: number }>(`
         WITH t AS (
@@ -77,7 +82,7 @@ async function load() {
               WHEN list_contains(${tierList}, 'Supplemental') THEN 'Supplemental'
               ELSE NULL
             END AS tier
-          FROM cde_full
+          FROM cde_canonical
         )
         SELECT tier, count(*) AS n FROM t WHERE tier IS NOT NULL GROUP BY tier
       `),
@@ -86,9 +91,9 @@ async function load() {
           cde_id,
           cde_name,
           preferred_question_text,
-          bundle_domain,
+          NULLIF(split_part(coalesce(bundle_domains, ''), '|', 1), '') AS bundle_domain,
           (${coreSum}) AS core_count
-        FROM cde_full
+        FROM cde_canonical
         WHERE (${coreSum}) > 0
         ORDER BY core_count DESC, cde_name
         LIMIT 8
@@ -100,7 +105,7 @@ async function load() {
           sum(CASE WHEN disease_sci = 'Y' THEN 1 ELSE 0 END) AS sci,
           sum(CASE WHEN disease_neurotrauma = 'Y' THEN 1 ELSE 0 END) AS neurotrauma,
           sum(CASE WHEN disease_agnostic = 'Y' THEN 1 ELSE 0 END) AS agnostic
-        FROM cde_full
+        FROM cde_canonical
       `),
     ]);
 
@@ -109,7 +114,7 @@ async function load() {
 
     stats.value = {
       total: Number(totals[0]?.n ?? 0),
-      bundles: Number(totals[0]?.b ?? 0),
+      bundles: Number(bundleTotals[0]?.b ?? 0),
       core: tierMap['Core'] ?? 0,
       recommended: tierMap['Recommended'] ?? 0,
       supplemental: tierMap['Supplemental'] ?? 0,

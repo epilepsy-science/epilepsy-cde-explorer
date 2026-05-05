@@ -9,7 +9,7 @@ import { useDuckDB } from '@/composables/useDuckDB';
 import { useDiseaseLens } from '@/composables/useDiseaseLens';
 import { useStudyType } from '@/composables/useStudyType';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
-import type { CdeRow } from '@/types';
+import type { CdeRow, CdeCanonicalRow } from '@/types';
 
 use([TreemapChart, TooltipComponent, TitleComponent, CanvasRenderer]);
 
@@ -17,19 +17,10 @@ const { status, query } = useDuckDB();
 const { lens, option, clause } = useDiseaseLens();
 const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
 
-// cde_full is enriched in this project with cde_domain / cde_subdomain /
-// cde_category — the per-CDE taxonomy that works for bundled and standalone
-// CDEs alike.
-interface EnrichedCde extends CdeRow {
-  cde_domain: string | null;
-  cde_subdomain: string | null;
-  cde_category: string | null;
-}
-
-const rows = ref<EnrichedCde[]>([]);
+const rows = ref<CdeRow[]>([]);
 const loading = ref(false);
 
-const selectedCde = ref<CdeRow | null>(null);
+const selectedCde = ref<CdeCanonicalRow | null>(null);
 const drawerOpen = ref(false);
 
 async function load() {
@@ -42,7 +33,7 @@ async function load() {
     const stClause = studyTypeClause();
     if (stClause) parts.push(stClause);
     const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
-    const data = await query<EnrichedCde>(`
+    const data = await query<CdeRow>(`
       SELECT * FROM cde_full ${where}
     `);
     rows.value = data;
@@ -334,11 +325,17 @@ const option_ = computed(() => {
 });
 
 // ECharts' click event has a wide data type; narrow at the boundary.
-function onChartClick(params: unknown) {
+async function onChartClick(params: unknown) {
   const data = (params as { data?: TreeNode })?.data;
   const cde = data?.cde;
   if (cde) {
-    selectedCde.value = cde;
+    // Treemap nodes carry per-context cde_full rows; fetch the canonical
+    // aggregate for the drawer.
+    const found = await query<CdeCanonicalRow>(
+      `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
+      [cde.cde_id],
+    );
+    selectedCde.value = found[0] ?? null;
     drawerOpen.value = true;
   }
 }

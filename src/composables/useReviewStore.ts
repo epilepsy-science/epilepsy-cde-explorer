@@ -258,7 +258,9 @@ async function selectSessionTargets(
   const diseaseClause = `disease_${filter.disease} = 'Y'`;
 
   // Bundled CDEs are reviewed as a bundle (bundles travel together by
-  // definition — same rule the CDE drawer enforces for "Add to CRF").
+  // definition — same rule the CDE drawer enforces for "Add to CRF"). Bundle
+  // enumeration goes through cde_full so multi-context CDEs surface every
+  // bundle they belong to.
   const bundleRows = await query<{ bundle_name: string; cde_domain: string | null }>(
     `SELECT bundle_name, any_value(cde_domain) AS cde_domain
      FROM cde_full
@@ -267,12 +269,16 @@ async function selectSessionTargets(
        AND bundle_name IS NOT NULL
      GROUP BY bundle_name`,
   );
+  // Standalone CDEs use cde_canonical so a CDE that's standalone in one
+  // classification context but bundled in another doesn't double-count as
+  // both a bundle and a standalone candidate.
   const cdeRows = await query<{ cde_name: string; cde_domain: string | null }>(
-    `SELECT cde_name, cde_domain
-     FROM cde_full
+    `SELECT cde_name,
+            NULLIF(split_part(coalesce(cde_domain, ''), '|', 1), '') AS cde_domain
+     FROM cde_canonical
      WHERE ${sourceClause}
        AND ${diseaseClause}
-       AND bundle_name IS NULL`,
+       AND bundle_count = 0`,
   );
 
   // Already-reviewed for THIS disease — a CDE that the reviewer classified
@@ -460,10 +466,13 @@ async function coverageFor(source: string, disease: DiseaseKey): Promise<Coverag
   const sourceClause = originKeysClause(source);
   const diseaseClause = `disease_${disease} = 'Y'`;
 
+  // Standalone CDEs come from cde_canonical (per-CDE, dedup'd across
+  // classification contexts). Bundle enumeration goes through cde_full so
+  // every bundle a CDE participates in surfaces.
   const [cdeRows, bundleRows] = await Promise.all([
     query<{ cde_name: string }>(
-      `SELECT cde_name FROM cde_full
-       WHERE ${sourceClause} AND ${diseaseClause} AND bundle_name IS NULL`,
+      `SELECT cde_name FROM cde_canonical
+       WHERE ${sourceClause} AND ${diseaseClause} AND bundle_count = 0`,
     ),
     query<{ bundle_name: string }>(
       `SELECT DISTINCT bundle_name FROM cde_full

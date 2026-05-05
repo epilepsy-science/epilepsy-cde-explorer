@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { CdeRow } from '@/types';
+import type { CdeCanonicalRow } from '@/types';
 import { splitPipe, splitSemi } from '@/types';
 import ClassificationPill from './ClassificationPill.vue';
 import DiseaseScopeCell from './DiseaseScopeCell.vue';
@@ -17,12 +17,12 @@ const CLASSIFICATION_ROWS = DISEASE_OPTIONS
   .map((o) => ({
     key: o.key,
     label: o.label,
-    column: `classification_${o.key}` as keyof CdeRow,
+    column: `classification_${o.key}` as keyof CdeCanonicalRow,
   }));
 
 const props = defineProps<{
   modelValue: boolean;
-  cde: CdeRow | null;
+  cde: CdeCanonicalRow | null;
 }>();
 
 defineEmits<{
@@ -64,7 +64,27 @@ const hasSourceMeta = computed(() => {
 // bundle — they're collected together by definition. So when this CDE is
 // bundled, we redirect the Add-to-CRF action to add the parent bundle, and
 // surface the change in the button label so the user understands why.
-const isBundled = computed(() => Boolean(props.cde?.bundle_name));
+//
+// Multi-bundle membership: if a CDE is in >1 bundle, default the
+// Add-to-CRF target to the first one. Reviewers picking a different
+// bundle should navigate to that bundle's detail page first.
+const isBundled = computed(() => (props.cde?.bundle_count ?? 0) > 0);
+const bundleList = computed(() => {
+  const ids = splitPipe(props.cde?.bundle_ids);
+  const names = splitPipe(props.cde?.bundle_names);
+  const domains = splitPipe(props.cde?.bundle_domains);
+  const subdomains = splitPipe(props.cde?.bundle_subdomains);
+  const categories = splitPipe(props.cde?.bundle_categories);
+  const wg = splitPipe(props.cde?.bundle_working_groups);
+  return ids.map((id, i) => ({
+    id,
+    name: names[i] ?? '',
+    domain: domains[i] ?? null,
+    subdomain: subdomains[i] ?? null,
+    category: categories[i] ?? null,
+    working_group: wg[i] ?? null,
+  }));
+});
 
 // Concept layer — surface the semantic anchors this CDE points at, if any.
 // Phase 1 just renders source + identifier; Phase 4 (UTS cache) will fill
@@ -88,7 +108,9 @@ watch(
 );
 const addKind = computed<'cde' | 'bundle'>(() => (isBundled.value ? 'bundle' : 'cde'));
 const addRef = computed<string | null>(() =>
-  isBundled.value ? (props.cde?.bundle_name ?? null) : (props.cde?.cde_name ?? null),
+  isBundled.value
+    ? (bundleList.value[0]?.name ?? null)
+    : (props.cde?.cde_name ?? null),
 );
 const addLabel = computed<string>(() =>
   isBundled.value ? 'Add bundle to CRF' : 'Add to CRF',
@@ -132,11 +154,13 @@ const addLabel = computed<string>(() =>
           />
         </div>
         <div class="cde-detail__meta">
-          <span class="mono muted" v-if="cde.variable_name">{{ cde.variable_name }}</span>
           <el-tag size="small" type="info">{{ cde.cde_data_type }}</el-tag>
           <el-tag v-if="cde.cde_type" size="small">{{ cde.cde_type }}</el-tag>
           <el-tag v-if="cde.unit_of_measure" size="small" type="warning">
             unit: {{ cde.unit_of_measure }}
+          </el-tag>
+          <el-tag v-if="cde.context_count > 1" size="small" type="success">
+            {{ cde.context_count }} contexts
           </el-tag>
         </div>
       </header>
@@ -224,19 +248,21 @@ const addLabel = computed<string>(() =>
         </div>
       </section>
 
-      <section v-if="cde.bundle_name">
-        <h3>Bundle</h3>
-        <div class="breadcrumb">
-          <span>{{ cde.bundle_domain }}</span>
-          <span class="sep">›</span>
-          <span>{{ cde.bundle_subdomain }}</span>
-          <span class="sep">›</span>
-          <span>{{ cde.bundle_category }}</span>
-          <span class="sep">›</span>
-          <router-link :to="`/bundles/${cde.bundle_id}`">{{ cde.bundle_name }}</router-link>
-        </div>
-        <div class="subtle" v-if="cde.bundle_working_group">
-          Working group: {{ cde.bundle_working_group }}
+      <section v-if="bundleList.length">
+        <h3>{{ bundleList.length > 1 ? `Bundles (${bundleList.length})` : 'Bundle' }}</h3>
+        <div v-for="b in bundleList" :key="b.id" class="bundle-entry">
+          <div class="breadcrumb">
+            <span v-if="b.domain">{{ b.domain }}</span>
+            <span v-if="b.domain && b.subdomain" class="sep">›</span>
+            <span v-if="b.subdomain">{{ b.subdomain }}</span>
+            <span v-if="b.subdomain && b.category" class="sep">›</span>
+            <span v-if="b.category">{{ b.category }}</span>
+            <span v-if="b.category" class="sep">›</span>
+            <router-link :to="`/bundles/${b.id}`">{{ b.name }}</router-link>
+          </div>
+          <div class="subtle" v-if="b.working_group">
+            Working group: {{ b.working_group }}
+          </div>
         </div>
       </section>
 
@@ -346,13 +372,10 @@ const addLabel = computed<string>(() =>
         </ul>
       </section>
 
-      <section v-if="cde.classification_notes || cde.additional_instructions">
-        <h3>Notes</h3>
-        <p v-if="cde.classification_notes">{{ cde.classification_notes }}</p>
-        <p v-if="cde.additional_instructions">
-          <strong>Instructions:</strong> {{ cde.additional_instructions }}
-        </p>
-      </section>
+      <!-- Per-context notes (variable_name, version, classification notes,
+           additional_instructions) are now per-classification-row state and
+           live in `cde_full`. A future "Per-CRF contexts" section will load
+           and render them here. -->
     </div>
   </el-drawer>
 </template>
@@ -409,6 +432,14 @@ const addLabel = computed<string>(() =>
   .sep {
     margin: 0 6px;
     color: $gray_3;
+  }
+}
+
+.bundle-entry {
+  & + & {
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px dashed $gray_2;
   }
 }
 
