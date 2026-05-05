@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cde.epilepsy.science/schemas/cde_classification.schema.json",
   "title": "CDE Classification",
-  "description": "Per-disease tier assignment for a CDE plus the domain/subdomain/category taxonomy and any disease-specific instructions. Joined to cde via CLASSIFIES relationships.",
+  "description": "Per-disease tier assignment for a CDE plus the domain/subdomain taxonomy and any disease-specific instructions. Joined to cde via CLASSIFIES relationships. The `category` column on this row is per-context (typically the CRF/form name); it is NOT a CDE-intrinsic taxonomy level — runtime views surface only domain/subdomain.",
   "type": "object",
   "additionalProperties": false,
   "required": [

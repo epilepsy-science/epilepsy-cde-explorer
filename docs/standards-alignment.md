@@ -55,8 +55,8 @@ When adding a new column, ask:
    form / disease / study?** If no → put it on `cde`. (E.g. data type,
    value domain, NLM identifier, CDISC SDTM mapping.)
 2. **Yes, it varies per context.** → put it on `cde_classification`.
-   (E.g. disease scope, tier, domain/subdomain/category, additional
-   instructions, **bundle membership**.)
+   (E.g. disease scope, tier, domain/subdomain, additional instructions,
+   **bundle membership**.)
 3. **It describes a grouping, not an individual element.** → put it on
    `bundle` or `crf` (whichever applies).
 

@@ -116,7 +116,8 @@ population) live on `cde`, not here** — those don't vary per-disease.
 | `notes`, `additional_instructions` | Free text. |
 | `disease_<scope>` | One of `Y` / `N`. Scopes today: `agnostic`, `neurotrauma`, `tbi`, `pte`, `sci`, `epilepsy`. |
 | `classification_<scope>` | `Core` / `Recommended` / `Supplemental` / `Not Applicable` / `null`. Per-disease tier. |
-| `domain`, `subdomain`, `category` | Hierarchical taxonomy. The dashboard joins these into a single `cde_path` for tree rendering. |
+| `domain`, `subdomain` | Hierarchical taxonomy (`cde_path` joins these into `"domain / subdomain"` for tree rendering). All sources today cap at 2 levels; the path is depth-agnostic if a future source ships deeper. |
+| `category` | Present in source parquets but **not surfaced in runtime views** — it's per-context (typically the CRF/form name) and isn't a CDE-intrinsic taxonomy level. A CDE on N CRFs has N "categories", which breaks tree semantics. |
 
 Each classification row is linked to its `cde` via a `CLASSIFIES` row in
 `relationships.csv`.
@@ -274,8 +275,8 @@ classified differently on different forms or live in multiple bundles).
 * CDE identity columns (`cde_id`, `cls_id`, `canonical_key`, `cde_name`, …)
 * Per-context classification fields including disease flags + per-disease tier.
 * Per-context bundle attribution (`bundle_id`, `bundle_name`, `bundle_domain`, …).
-* Per-context taxonomy (`cde_domain`, `cde_subdomain`, `cde_category`),
-  COALESCEd from the classification row first, then the bundle.
+* Per-context taxonomy (`cde_domain`, `cde_subdomain`), COALESCEd from the
+  classification row first, then the bundle.
 * `cde_path` — `' / '`-delimited string of the populated taxonomy levels.
 * `origins`, `origin_keys`, `study_types`, `_source_key` — used for filters.
 

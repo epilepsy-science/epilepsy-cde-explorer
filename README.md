@@ -23,11 +23,17 @@ The prep step cleans ~100 records with double-escaped quotes, flattens the
 ## Architecture
 
 - `src/composables/useDuckDB.ts` — initializes DuckDB-WASM once, registers the
-  Parquet files via HTTP, and creates two denormalized views:
-  - `cde_full` — CDE + classification + (first) bundle + aggregated sources
+  Parquet files via HTTP, and creates the denormalized views:
+  - `cde_full` — one row per `(canonical CDE × classification × bundle)`.
+    Used by Tree, Treemap, BundleDetail, CrfDetail — anywhere multi-context
+    membership produces richer output.
+  - `cde_canonical` — exactly one row per canonical CDE; aggregates classification
+    fields across contexts (max-OR for disease scope, highest tier for
+    classification, pipe-joined bundles + paths). Used by /cdes table, Home tiles,
+    Overview counts, drawer lookups.
   - `bundle_full` — bundle + member CDE count
 - `src/views/CdesView.vue` — CDE browse table with filters, detail drawer
-- `src/views/BundlesView.vue` — bundles grouped by domain → subdomain → category
+- `src/views/BundlesView.vue` — bundles grouped by domain → subdomain
 - `src/views/BundleDetailView.vue` — bundle metadata + member CDEs (pattern that
   will later host CRF review)
 
