@@ -1,16 +1,22 @@
 #!/usr/bin/env node
-// Transforms the v0.01 PTE Clinical CDE export (under data/pte-clinical-2/)
+// Transforms the v0.02 PTE Clinical CDE export (under data/pte-clinical-2/)
 // into Pennsieve-format JSONL records that prepare-data.mjs can ingest.
 //
 // The CSV ships steward_org, aliases, dec_identifier, bundle_name and all
 // five disease scopes as first-class columns, so this transform is mostly
 // straight passthrough plus a few enum normalizations. source_key is
 // "pte-clinical" so the dashboard's filter values and cached UI state are
-// stable across the v0.01 catalog refresh.
+// stable across catalog refreshes.
+//
+// v0.02 notes: the duplicate_cde_flag and ninds_crf_id/ninds_crf_name columns
+// were dropped upstream (every cde_id is now unique, so the dedupe is moot);
+// references to dropped columns below degrade to null. Two QA columns are
+// surfaced: cde_id_verified (on the CDE) and version_date_flag (on the
+// classification, marking the mangled fractional dates passed through raw).
 //
 // Inputs (under data/pte-clinical-2/):
-//   v0.01_pte_clinical.csv   one row per (CDE × PTE-CRF) assignment
-//   v0.01_pte_bundles.csv    bundle metadata (display_name, description, pte_crf)
+//   v0.02_pte_clinical.csv   one row per (CDE × PTE-CRF) assignment
+//   v0.02_pte_bundles.csv    bundle metadata (display_name, description)
 //
 // Outputs (under data/pte-clinical-2/metadata/):
 //   models/{cde,cde_classification,crf,bundle,provenance}/versions/1/{schema.json,records.jsonl}
@@ -19,8 +25,7 @@
 //
 // Filters applied:
 //   - drop rows with empty cde_id
-//   - drop rows with cde_id starting "DRAFT:" (35 placeholder rows w/o name/definition)
-//   - drop rows with duplicate_cde_flag = "DUPLICATE" (8 redundant cross-listings)
+//   - drop rows with cde_id starting "DRAFT:" (placeholder rows w/o name/definition)
 //
 // Usage:
 //   node scripts/transform-pte-clinical-2.mjs
@@ -40,8 +45,8 @@ const SOURCE_KEY = 'pte-clinical';
 const SOURCE_LABEL = 'PTE Clinical CDEs';
 const STUDY_TYPE = 'Clinical';
 
-const CSV_CDES = resolve(SRC_DIR, 'v0.01_pte_clinical.csv');
-const CSV_BUNDLES = resolve(SRC_DIR, 'v0.01_pte_bundles.csv');
+const CSV_CDES = resolve(SRC_DIR, 'v0.02_pte_clinical.csv');
+const CSV_BUNDLES = resolve(SRC_DIR, 'v0.02_pte_bundles.csv');
 
 // ── CSV parsing (RFC-4180, UTF-8 with optional BOM) ──────────────────────────
 
@@ -168,6 +173,14 @@ function normalizeTbiClass(raw) {
   return v.replace(/-/g, ' ').replace(/\s+/g, ' ').trim() || null;
 }
 
+/** Uppercase cde_origin and repair the upstream "claculation" typo. */
+function mapOrigin(raw) {
+  const v = nullIfEmpty(raw);
+  if (!v) return 'COLLECTED';
+  const up = v.toUpperCase();
+  return up === 'CLACULATION' ? 'CALCULATION' : up;
+}
+
 function yn(raw) {
   const v = nullIfEmpty(raw);
   if (!v) return 'N';
@@ -184,7 +197,6 @@ function isUsableRow(r) {
   const cid = (r.cde_id || '').trim();
   if (!cid) return false;
   if (cid.startsWith('DRAFT:')) return false; // placeholder rows w/o name or definition
-  if ((r.duplicate_cde_flag || '').trim().toUpperCase() === 'DUPLICATE') return false;
   return true;
 }
 
@@ -241,7 +253,7 @@ function build(cdeRows, bundleRows) {
         max_value: nullIfEmpty(r.max_value),
         // Lowercase "collected"/"calculation" in the CSV; uppercase to match
         // the existing enum used by the dashboard.
-        cde_origin: nullIfEmpty(r.cde_origin)?.toUpperCase() || 'COLLECTED',
+        cde_origin: mapOrigin(r.cde_origin),
         population: nullIfEmpty(r.population),
         cdisc_domain: nullIfEmpty(r.cdisc_domain),
         cdisc_variable_name: nullIfEmpty(r.cdisc_variable_name),
@@ -253,6 +265,8 @@ function build(cdeRows, bundleRows) {
         dec_name: nullIfEmpty(r.dec_name),
         other_identifiers: nullIfEmpty(r.other_identifiers),
         nlm_view_url: nullIfEmpty(r.nlm_view_url),
+        // v0.02 curation QA: OK / UNVERIFIED / NEED (null when unreviewed).
+        cde_id_verified: nullIfEmpty(r.cde_id_verified),
       },
     });
   }
@@ -358,8 +372,10 @@ function build(cdeRows, bundleRows) {
         variable_name: nullIfEmpty(r.variable_name) || cid,
         version_name: `${SOURCE_LABEL} · ${crfName}`,
         // Excel mangles fractional dates ("21:51.5"); pass through as raw
-        // strings — curators interpret these in the upstream system.
+        // strings — curators interpret these in the upstream system. v0.02
+        // flags the mangled ones explicitly via version_date_flag.
         version_date: nullIfEmpty(r.ninds_version_date) || TODAY,
+        version_date_flag: nullIfEmpty(r.version_date_flag),
         notes: nullIfEmpty(r.notes),
         additional_instructions:
           nullIfEmpty(r.additional_instructions) ||
