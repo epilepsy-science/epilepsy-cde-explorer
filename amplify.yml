@@ -17,13 +17,29 @@ frontend:
       - node_modules/**/*
 
 customHeaders:
-  # Parquet data — content-addressed by filename, safe to cache indefinitely.
-  - pattern: '/data/**'
+  # Parquet data — filenames are stable, but the dashboard appends a
+  # `?v=<build>` token (from manifest.json) to every parquet URL, so caching
+  # indefinitely is safe: a redeploy changes the token and busts the cache.
+  # Two patterns: root-level derived globals and per-source / cdisc-ct files.
+  - pattern: '/data/*.parquet'
     headers:
       - key: 'Cache-Control'
         value: 'public, max-age=31536000, immutable'
       - key: 'Content-Type'
         value: 'application/octet-stream'
+  - pattern: '/data/**/*.parquet'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=31536000, immutable'
+      - key: 'Content-Type'
+        value: 'application/octet-stream'
+
+  # manifest.json is the cache-bust source of truth — it carries the `?v=`
+  # token and the source list, so it must always revalidate.
+  - pattern: '/data/manifest.json'
+    headers:
+      - key: 'Cache-Control'
+        value: 'public, max-age=0, must-revalidate'
 
   # DuckDB-WASM binaries — large, uncompressed, cache forever.
   - pattern: '**/*.wasm'

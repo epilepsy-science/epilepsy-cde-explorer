@@ -26,6 +26,8 @@ interface ManifestDerived {
 }
 interface Manifest {
   generated_at: string;
+  /** Cache-bust token appended as `?v=` to every parquet URL. */
+  version?: string;
   sources: SourceManifestEntry[];
   derived?: ManifestDerived | null;
 }
@@ -67,13 +69,19 @@ async function init(): Promise<DuckDBHandle> {
     const base = `${window.location.origin}${import.meta.env.BASE_URL || '/'}data`;
 
     // ── Load source manifest ────────────────────────────────────────────────
-    const manifestRes = await fetch(`${base}/manifest.json`);
+    // `no-cache` forces revalidation so we always pick up the latest data
+    // version (and any new sources); the parquet files below are cache-busted
+    // via the `?v=` token this manifest carries.
+    const manifestRes = await fetch(`${base}/manifest.json`, { cache: 'no-cache' });
     if (!manifestRes.ok) {
       throw new Error(`Missing ${base}/manifest.json — run \`yarn prepare-data\``);
     }
     const manifest = (await manifestRes.json()) as Manifest;
     const allSources = manifest.sources.slice().sort((a, b) => a.order - b.order);
     if (!allSources.length) throw new Error('manifest.json has no sources');
+
+    // Appended to every parquet URL so a redeploy busts the immutable cache.
+    const ver = manifest.version ? `?v=${manifest.version}` : '';
 
     // Operator-controlled source allowlist comes from /v1/dashboard-config
     // (SSM-backed, 60s server-side cache). Empty array (or fetch failure)
@@ -96,7 +104,7 @@ async function init(): Promise<DuckDBHandle> {
     for (const s of sources) {
       for (const f of s.files) {
         const fileId = `${s.key}__${f}`;
-        const url = `${base}/${s.key}/${f}`;
+        const url = `${base}/${s.key}/${f}${ver}`;
         if (!(await fetchWithBinaryCheck(url))) continue;
         await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
         const model = f.replace(/\.parquet$/, '');
@@ -114,7 +122,7 @@ async function init(): Promise<DuckDBHandle> {
       for (const [model, fileName] of Object.entries(manifest.derived)) {
         if (!fileName) continue;
         const fileId = `__derived__${fileName}`;
-        const url = `${base}/${fileName}`;
+        const url = `${base}/${fileName}${ver}`;
         if (!(await fetchWithBinaryCheck(url))) continue;
         await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
         derivedFileIds[model as keyof typeof derivedFileIds] = fileId;
@@ -601,7 +609,7 @@ async function init(): Promise<DuckDBHandle> {
     const ctBase = `${base}/cdisc-ct`;
     let ctRegistered = false;
     for (const name of ['codelist.parquet', 'codelist_item.parquet']) {
-      const url = `${ctBase}/${name}`;
+      const url = `${ctBase}/${name}${ver}`;
       if (!(await fetchWithBinaryCheck(url))) {
         ctRegistered = false;
         break;

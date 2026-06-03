@@ -444,8 +444,13 @@ async function main() {
   // Derive global concept registry from any source that carries dec_identifier.
   const conceptStats = await emitConceptRegistry();
 
+  const generatedAt = new Date().toISOString();
   const manifest = {
-    generated_at: new Date().toISOString(),
+    generated_at: generatedAt,
+    // Cache-bust token: the parquet filenames are stable, so the dashboard
+    // appends `?v=<version>` to every parquet URL it registers. manifest.json
+    // itself must always revalidate (see amplify.yml) so this stays fresh.
+    version: generatedAt.replace(/\D/g, ''),
     sources: manifestSources,
     // Derived globals — top-level files, not per-source. Optional; the
     // dashboard treats absence as "concept layer not built".
