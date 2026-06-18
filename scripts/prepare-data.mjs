@@ -43,6 +43,10 @@ const DEFAULT_SOURCE_DIRS = [
   'data/nlm-ninds-disease-epilepsy',
   'data/ninds-epilepsy',
   'data/pte-clinical-2',
+  // CURE Epilepsy SUDEP Preclinical CDEs (7 module workbooks → 7 CRFs).
+  // Listed last: established clinical sources win display fields on any
+  // canonical-key overlap; the preclinical SUDEP set adds its own contexts.
+  'data/cure-sudep',
 ];
 
 const cliArgs = process.argv.slice(2);
