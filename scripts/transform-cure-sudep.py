@@ -12,12 +12,18 @@ normalizations. It mirrors scripts/transform-pte-clinical-2.mjs.
 Modelling choices (see docs/data-model.md):
   - One source: source_key "cure-sudep", study_type "Preclinical".
   - Each module workbook -> one CRF (7 total).
-  - Column L "Name of Bundle" -> bundles, scoped per module.
+  - Column L "Name of Bundle" -> the SUBDOMAIN taxonomy level, NOT a `bundle`
+    record. In this repo a `bundle` is the strict ODM sense — CDEs that *must*
+    be captured together (e.g. Age value + Age unit). The spreadsheets' groups
+    ("Animal Information", "Anesthesia", "EEG settings", ...) are thematic
+    categories whose members can be captured independently, so they belong in
+    the taxonomy, not the bundle model. We emit no bundles for now; genuine
+    atomic groups can be promoted later after curation review.
   - disease scope: these are Sudden Unexpected Death in EPILEPSY CDEs, so
     disease_epilepsy = "Y". The module sheets carry no Core/Recommended/
-    Supplemental tier, so classification_epilepsy is left null.
-  - taxonomy: domain = module display name, subdomain = bundle name, so the
-    Tree view renders Module -> Bundle -> CDE.
+    Supplemental tier, so classification_epilepsy is left null (a curation task).
+  - taxonomy / categorization: domain = module display name, subdomain = group
+    name, so the Tree view renders Module -> Group -> CDE.
 
 Inputs  (data/cure-sudep/*-Module.xlsx)
 Outputs (data/cure-sudep/metadata/...):
@@ -184,8 +190,11 @@ def classify_header(h):
         return "dec_terminology_source"
     if "cde type" in t:
         return "cde_type"
+    # The spreadsheets call this "Name of Bundle", but semantically it's a
+    # thematic category, so we map it to the subdomain taxonomy level (not a
+    # `bundle` record). See the module docstring.
     if "name of bundle" in t or t == "bundle":
-        return "bundle_name"
+        return "group_name"
     if "reference" in t:
         return "references"
     if "keyword" in t or "tag" in t:
@@ -260,11 +269,8 @@ def build(modules):
     cde_records = []
     cls_records = []
     crf_records = []
-    bundle_by_key = {}       # (module_token, bundle_name) -> uuid
-    bundle_records = []
 
     classifies = []          # (cls_id, cde_id)
-    part_of = []             # (cls_id, bundle_id)
     sourced = []             # (record_id, provenance_id)
     seen_cls = set()
 
@@ -329,28 +335,9 @@ def build(modules):
                 seen_in_crf.add(name)
                 crf_items.append({"type": "cde", "ref": name})
 
-            # ── Bundle (per module + bundle name) ──
-            bundle_name = null_if_empty(r.get("bundle_name"))
-            bundle_id = None
-            if bundle_name:
-                bkey = (mod_token, bundle_name)
-                if bkey not in bundle_by_key:
-                    bundle_id = uid(f"bundle:{mod_token}:{bundle_name}")
-                    bundle_by_key[bkey] = bundle_id
-                    bundle_records.append({
-                        "id": bundle_id,
-                        "data": {
-                            "bundle_name": bundle_name,
-                            "display_name": bundle_name,
-                            "description": None,
-                            "domain": mod_display,
-                            "subdomain": bundle_name,
-                            "category": mod_display,
-                            "working_group": "CURE Epilepsy SUDEP CDE Working Group",
-                        },
-                    })
-                    sourced.append((bundle_id, provenance["id"]))
-                bundle_id = bundle_by_key[bkey]
+            # The spreadsheet "Name of Bundle" group becomes the subdomain
+            # taxonomy level (Module -> Group -> CDE), not a bundle record.
+            group = null_if_empty(r.get("group_name"))
 
             # ── Classification (one per CDE × module) ──
             cls_key = f"{cde_key}::{mod_token}"
@@ -380,9 +367,9 @@ def build(modules):
                     "disease_sci": "N",
                     "classification_sci": None,
                     "domain": mod_display,
-                    "subdomain": bundle_name,
+                    "subdomain": group,
                     "category": mod_display,
-                    "bundle_name": bundle_name,
+                    "bundle_name": None,
                     "ninds_crf_id": None,
                     "ninds_crf_name": mod_display,
                     "working_group": "CURE Epilepsy SUDEP CDE Working Group",
@@ -390,8 +377,6 @@ def build(modules):
             })
             classifies.append((cls_id, cde_id))
             sourced.append((cls_id, provenance["id"]))
-            if bundle_id:
-                part_of.append((cls_id, bundle_id))
 
         # ── CRF (one per module) ──
         crf_id = uid(f"crf:{mod_token}")
@@ -425,8 +410,7 @@ def build(modules):
         "cde_records": cde_records,
         "cls_records": cls_records,
         "crf_records": crf_records,
-        "bundle_records": bundle_records,
-        "rels": {"classifies": classifies, "part_of": part_of, "sourced": sourced},
+        "rels": {"classifies": classifies, "sourced": sourced},
     }
 
 
@@ -459,16 +443,19 @@ def emit(out):
                 open_schema(["variable_name"]), out["cls_records"])
     write_jsonl(os.path.join(META, "models/crf/versions/1"),
                 open_schema(["crf_name", "title", "version", "items"]), out["crf_records"])
-    write_jsonl(os.path.join(META, "models/bundle/versions/1"),
-                open_schema(["bundle_name"]), out["bundle_records"])
     write_jsonl(os.path.join(META, "models/provenance/versions/1"),
                 open_schema(["source_key", "label"]), [out["provenance"]])
+
+    # No `bundle` model: the spreadsheet groups are taxonomy, not bundles.
+    # Remove any stale bundle model left by an earlier run of this extractor.
+    stale_bundle = os.path.join(META, "models/bundle")
+    if os.path.isdir(stale_bundle):
+        import shutil
+        shutil.rmtree(stale_bundle)
 
     rel_lines = ["source_record_id,target_record_id,relationship_type"]
     for s, t in out["rels"]["classifies"]:
         rel_lines.append(f"{s},{t},CLASSIFIES")
-    for s, t in out["rels"]["part_of"]:
-        rel_lines.append(f"{s},{t},PART_OF")
     for s, t in out["rels"]["sourced"]:
         rel_lines.append(f"{s},{t},SOURCED_FROM")
     with open(os.path.join(META, "relationships.csv"), "w") as f:
@@ -483,7 +470,6 @@ def emit(out):
             "cde_count": len(out["cde_records"]),
             "crf_count": len(out["crf_records"]),
             "classification_count": len(out["cls_records"]),
-            "bundle_count": len(out["bundle_records"]),
         }, f, indent=2)
         f.write("\n")
 
@@ -503,13 +489,16 @@ def main():
     out = build(modules)
     emit(out)
 
+    groups = {(c["data"]["domain"], c["data"]["subdomain"])
+              for c in out["cls_records"] if c["data"]["subdomain"]}
     print(
         f"\nWrote {META}:\n"
         f"  cde:                {len(out['cde_records'])}\n"
         f"  cde_classification: {len(out['cls_records'])}\n"
         f"  crf:                {len(out['crf_records'])}\n"
-        f"  bundle:             {len(out['bundle_records'])}\n"
         f"  provenance:         1\n"
+        f"  (taxonomy: {len({d for d, _ in groups})} domains / "
+        f"{len(groups)} domain×subdomain groups; no bundles by design)\n"
     )
     print("Next:  node scripts/prepare-data.mjs")
 
