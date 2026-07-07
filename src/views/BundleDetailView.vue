@@ -7,14 +7,14 @@ import ClassificationPill from '@/components/ClassificationPill.vue';
 import DiseaseScopeCell from '@/components/DiseaseScopeCell.vue';
 import AddToCrfButton from '@/components/AddToCrfButton.vue';
 import { DISEASE_OPTIONS } from '@/composables/useDiseaseLens';
-import type { BundleRow, CdeRow, CdeCanonicalRow } from '@/types';
+import type { BundleRow, CdeCanonicalRow } from '@/types';
 
 const route = useRoute();
 const router = useRouter();
 const { status, query } = useDuckDB();
 
 const bundle = ref<BundleRow | null>(null);
-const cdes = ref<CdeRow[]>([]);
+const cdes = ref<CdeCanonicalRow[]>([]);
 const loading = ref(false);
 const selectedCde = ref<CdeCanonicalRow | null>(null);
 const drawerOpen = ref(false);
@@ -27,8 +27,14 @@ async function load() {
   try {
     const [bRows, cdeRows] = await Promise.all([
       query<BundleRow>(`SELECT * FROM bundle_full WHERE id = ?`, [bundleId.value]),
-      query<CdeRow>(
-        `SELECT * FROM cde_full WHERE bundle_id = ? ORDER BY cde_name`,
+      // One row per CDE, not per CDE×context. cde_full has a row per
+      // classification context, so a CDE classified for both TBI and PTE would
+      // appear multiple times; cde_canonical rolls those up (disease_* +
+      // per-disease classification_* tiers) so each CDE shows once.
+      query<CdeCanonicalRow>(
+        `SELECT * FROM cde_canonical
+           WHERE cde_id IN (SELECT DISTINCT cde_id FROM cde_full WHERE bundle_id = ?)
+           ORDER BY cde_name`,
         [bundleId.value],
       ),
     ]);
@@ -46,22 +52,18 @@ onMounted(() => {
   if (status.value === 'ready') load();
 });
 
-async function openRow(row: CdeRow) {
-  // Bundle detail rows are per-context cde_full rows; the drawer wants the
-  // canonical aggregate, so fetch by cde_id before opening.
-  const found = await query<CdeCanonicalRow>(
-    `SELECT * FROM cde_canonical WHERE cde_id = ? LIMIT 1`,
-    [row.cde_id],
-  );
-  selectedCde.value = found[0] ?? null;
+function openRow(row: CdeCanonicalRow) {
+  // Rows are already the canonical aggregate the drawer wants.
+  selectedCde.value = row;
   drawerOpen.value = true;
 }
 
 // Per-disease classification columns derived from DISEASE_OPTIONS so adding a
-// disease automatically participates in the bundle's tier roll-up.
-const CLASSIFICATION_COLS: Array<keyof CdeRow> = DISEASE_OPTIONS
+// disease automatically participates in the bundle's tier roll-up + display.
+const tierColumns = DISEASE_OPTIONS
   .filter((o) => o.column !== null)
-  .map((o) => `classification_${o.key}` as keyof CdeRow);
+  .map((o) => ({ key: o.key, label: o.label, col: `classification_${o.key}` as keyof CdeCanonicalRow }));
+const CLASSIFICATION_COLS: Array<keyof CdeCanonicalRow> = tierColumns.map((t) => t.col);
 
 const classificationSummary = computed(() => {
   const tiers = ['Core', 'Recommended', 'Supplemental', 'Not Applicable'];
@@ -108,7 +110,7 @@ const classificationSummary = computed(() => {
         </div>
         <div class="bundle-detail__meta">
           <el-tag size="small">{{ bundle.working_group }}</el-tag>
-          <el-tag type="info" size="small">{{ bundle.cde_count }} CDEs</el-tag>
+          <el-tag type="info" size="small">{{ cdes.length }} CDEs</el-tag>
         </div>
       </header>
 
@@ -148,11 +150,19 @@ const classificationSummary = computed(() => {
         <el-table-column label="Disease" width="160">
           <template #default="{ row }"><DiseaseScopeCell :row="row" /></template>
         </el-table-column>
-        <el-table-column label="Classification (best)" width="180">
+        <el-table-column label="Classification" width="240">
           <template #default="{ row }">
-            <ClassificationPill
-              :value="row.classification_tbi || row.classification_pte || row.classification_sci || row.classification_neurotrauma || row.classification_agnostic"
-            />
+            <div style="display:flex;flex-direction:column;gap:2px">
+              <span
+                v-for="o in tierColumns"
+                :key="o.key"
+                v-show="row[o.col]"
+                style="display:inline-flex;gap:6px;align-items:center"
+              >
+                <span class="mono muted" style="min-width:34px">{{ o.label }}</span>
+                <ClassificationPill :value="(row[o.col] as string)" />
+              </span>
+            </div>
           </template>
         </el-table-column>
         <el-table-column prop="unit_of_measure" label="Unit" width="100">

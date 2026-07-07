@@ -274,6 +274,26 @@ async function loadGrouped() {
     );
   }
 
+  // cde_full has one row per (CDE × classification context), so a CDE
+  // classified for multiple diseases (e.g. TBI + PTE) appears multiple times.
+  // Collapse to one row per CDE, merging the per-disease tier columns, so a
+  // bundle lists each CDE once with all its context tiers.
+  const MERGE_COLS = [
+    'disease_agnostic', 'disease_neurotrauma', 'disease_tbi', 'disease_pte', 'disease_sci', 'disease_epilepsy',
+    'classification_agnostic', 'classification_neurotrauma', 'classification_tbi', 'classification_pte', 'classification_sci', 'classification_epilepsy',
+  ] as const;
+  const dedupeByCde = (rows: CdeRow[]): CdeRow[] => {
+    const m = new Map<string, CdeRow>();
+    for (const c of rows) {
+      const ex = m.get(c.cde_id);
+      if (!ex) { m.set(c.cde_id, { ...c }); continue; }
+      for (const col of MERGE_COLS) {
+        if (!ex[col] && c[col]) (ex as Record<string, unknown>)[col] = c[col];
+      }
+    }
+    return [...m.values()];
+  };
+
   const byBundle = new Map<string, CdeRow[]>();
   for (const c of children) {
     if (!c.bundle_id) continue;
@@ -282,7 +302,7 @@ async function loadGrouped() {
   }
 
   const tree: TreeRow[] = bundlePage.map((b) => {
-    const kids = byBundle.get(b.bundle_id) ?? [];
+    const kids = dedupeByCde(byBundle.get(b.bundle_id) ?? []);
     return {
       kind: 'bundle' as const,
       id: `b:${b.bundle_id}`,
@@ -299,6 +319,7 @@ async function loadGrouped() {
   });
 
   if (includeUnbundled && unbundledChildren.length) {
+    const unbundledKids = dedupeByCde(unbundledChildren);
     tree.push({
       kind: 'bundle',
       id: 'b:__unbundled__',
@@ -307,9 +328,9 @@ async function loadGrouped() {
       bundle_category: null,
       bundle_domain: null,
       bundle_working_group: null,
-      cde_count: unbundledChildren.length,
-      tier_summary: summarizeTiers(unbundledChildren),
-      children: unbundledChildren.map((c) => ({
+      cde_count: unbundledKids.length,
+      tier_summary: summarizeTiers(unbundledKids),
+      children: unbundledKids.map((c) => ({
         ...c,
         kind: 'cde' as const,
         id: `c:${c.cde_id}`,
