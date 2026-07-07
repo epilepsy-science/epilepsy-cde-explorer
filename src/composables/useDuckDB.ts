@@ -1,6 +1,5 @@
 import { ref, readonly } from 'vue';
 import * as duckdb from '@duckdb/duckdb-wasm';
-import { fetchDashboardConfig } from '@/api/dashboardConfig';
 
 type Status = 'idle' | 'loading' | 'ready' | 'error';
 
@@ -9,27 +8,13 @@ interface DuckDBHandle {
   conn: duckdb.AsyncDuckDBConnection;
 }
 
-interface SourceManifestEntry {
-  key: string;
-  label: string;
-  study_type?: 'Clinical' | 'Preclinical' | null;
-  /** 'sample' = illustrative training dataset; reviewers see a "Sample"
-   *  badge so they know feedback won't roll up to a published curation.
-   *  Defaults to 'production' for sources that predate the field. */
-  kind?: 'sample' | 'production';
-  order: number;
-  files: string[];
-}
-interface ManifestDerived {
-  concept?: string;
-  cde_represents_concept?: string;
-}
-interface Manifest {
+// The published cde-service catalog release manifest
+// (cde/versions/<catalog_version>/manifest.json).
+interface CatalogManifest {
+  catalog_version: string;
   generated_at: string;
-  /** Cache-bust token appended as `?v=` to every parquet URL. */
-  version?: string;
-  sources: SourceManifestEntry[];
-  derived?: ManifestDerived | null;
+  models: { name: string; version: number; records: number }[];
+  relationship_count: number;
 }
 
 let handlePromise: Promise<DuckDBHandle> | null = null;
@@ -66,278 +51,226 @@ async function init(): Promise<DuckDBHandle> {
 
     const conn = await db.connect();
 
-    const base = `${window.location.origin}${import.meta.env.BASE_URL || '/'}data`;
+    // ── Read the published CDE catalog release (single reconciled dataset) ────
+    // Source of truth is the cde-service catalog on CloudFront. The catalog is
+    // ALREADY the one reconciled store (one row per CDE), so there is no
+    // per-source union / client-side reconciliation here. Records are nested
+    // ({id, data}) and classification is long-form; we reshape to the flat/wide
+    // view contract the rest of the app expects. Layout:
+    //   cde/latest.json                 -> { catalog_version }
+    //   cde/versions/<v>/manifest.json  -> { models: [{name, version, records}] }
+    //   .../metadata/models/<m>/versions/<n>/records.jsonl  ({id, data:{...}})
+    //   .../metadata/relationships.csv  (source_record_id,target_record_id,relationship_type)
+    const catalogBase = (
+      (import.meta.env.VITE_CDE_CATALOG_URL as string | undefined) ||
+      'https://d1es2ibvcs23vq.cloudfront.net'
+    ).replace(/\/$/, '');
 
-    // ── Load source manifest ────────────────────────────────────────────────
-    // `no-cache` forces revalidation so we always pick up the latest data
-    // version (and any new sources); the parquet files below are cache-busted
-    // via the `?v=` token this manifest carries.
-    const manifestRes = await fetch(`${base}/manifest.json`, { cache: 'no-cache' });
-    if (!manifestRes.ok) {
-      throw new Error(`Missing ${base}/manifest.json — run \`yarn prepare-data\``);
+    const latestRes = await fetch(`${catalogBase}/cde/latest.json`, { cache: 'no-cache' });
+    if (!latestRes.ok) throw new Error(`Missing ${catalogBase}/cde/latest.json`);
+    const catalogVersion = ((await latestRes.json()) as { catalog_version: string }).catalog_version;
+
+    const verBase = `${catalogBase}/cde/versions/${catalogVersion}`;
+    const manifestRes = await fetch(`${verBase}/manifest.json`);
+    if (!manifestRes.ok) throw new Error(`Missing ${verBase}/manifest.json`);
+    const manifest = (await manifestRes.json()) as CatalogManifest;
+
+    // Register each model's records.jsonl + the relationships.csv as DuckDB HTTP
+    // files (referenced by name in read_json / read_csv below).
+    const modelFile: Record<string, string> = {};
+    for (const m of manifest.models) {
+      const fileId = `catalog__${m.name}`;
+      const url = `${verBase}/metadata/models/${m.name}/versions/${m.version}/records.jsonl`;
+      await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
+      modelFile[m.name] = fileId;
     }
-    const manifest = (await manifestRes.json()) as Manifest;
-    const allSources = manifest.sources.slice().sort((a, b) => a.order - b.order);
-    if (!allSources.length) throw new Error('manifest.json has no sources');
-
-    // Appended to every parquet URL so a redeploy busts the immutable cache.
-    const ver = manifest.version ? `?v=${manifest.version}` : '';
-
-    // Operator-controlled source allowlist comes from /v1/dashboard-config
-    // (SSM-backed, 60s server-side cache). Empty array (or fetch failure)
-    // means "all sources" — permissive default keeps the dashboard usable
-    // when the API is briefly unavailable.
-    const config = await fetchDashboardConfig();
-    const sources = config.enabled_sources.length
-      ? allSources.filter((s) => config.enabled_sources.includes(s.key))
-      : allSources;
-    if (!sources.length) {
-      throw new Error(
-        'enabled_sources in dashboard-config matches none of the available sources',
-      );
-    }
-
-    // ── Register each source's parquets with namespaced file IDs ────────────
-    // DuckDB references registered files by name; we register as
-    // `<sourceKey>__<model>.parquet` so the URLs resolve to per-source subdirs.
-    const perModelPresence: Record<string, string[]> = {};
-    for (const s of sources) {
-      for (const f of s.files) {
-        const fileId = `${s.key}__${f}`;
-        const url = `${base}/${s.key}/${f}${ver}`;
-        if (!(await fetchWithBinaryCheck(url))) continue;
-        await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
-        const model = f.replace(/\.parquet$/, '');
-        if (!perModelPresence[model]) perModelPresence[model] = [];
-        perModelPresence[model].push(fileId);
-      }
-    }
-
-    // ── Register derived global parquets ────────────────────────────────────
-    // The concept registry is a single global file (not per-source) because
-    // multiple sources contribute to the same concept records. Manifest
-    // omits the section when no source contributed concepts.
-    const derivedFileIds: { concept?: string; cde_represents_concept?: string } = {};
-    if (manifest.derived) {
-      for (const [model, fileName] of Object.entries(manifest.derived)) {
-        if (!fileName) continue;
-        const fileId = `__derived__${fileName}`;
-        const url = `${base}/${fileName}${ver}`;
-        if (!(await fetchWithBinaryCheck(url))) continue;
-        await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
-        derivedFileIds[model as keyof typeof derivedFileIds] = fileId;
-      }
-    }
-
-    // Build `UNION ALL BY NAME` view for a model across the sources that have it.
-    // Columns that exist in only some sources become NULL for the rest.
-    const unionSql = (fileIds: string[]) =>
-      fileIds.map((id) => `SELECT * FROM '${id}'`).join('\nUNION ALL BY NAME\n');
-
-    // ── Required models ─────────────────────────────────────────────────────
-    if (!perModelPresence.cde?.length) throw new Error('No cde.parquet files loaded');
-    if (!perModelPresence.cde_classification?.length)
-      throw new Error('No cde_classification.parquet files loaded');
-    if (!perModelPresence.provenance?.length)
-      throw new Error('No provenance.parquet files loaded');
-    if (!perModelPresence.relationships?.length)
-      throw new Error('No relationships.parquet files loaded');
-
-    // Raw per-source unions (every row carries _source_key and _source_order).
-    await conn.query(`CREATE OR REPLACE VIEW cde_raw AS ${unionSql(perModelPresence.cde)}`);
-    await conn.query(
-      `CREATE OR REPLACE VIEW cde_classification AS ${unionSql(perModelPresence.cde_classification)}`,
+    await db.registerFileURL(
+      'catalog__relationships',
+      `${verBase}/metadata/relationships.csv`,
+      duckdb.DuckDBDataProtocol.HTTP,
+      false,
     );
-    await conn.query(
-      `CREATE OR REPLACE VIEW provenance AS ${unionSql(perModelPresence.provenance)}`,
-    );
-    await conn.query(
-      `CREATE OR REPLACE VIEW relationships_raw AS ${unionSql(perModelPresence.relationships)}`,
-    );
-
-    // ── Optional: CRF ───────────────────────────────────────────────────────
-    if (perModelPresence.crf?.length) {
-      await conn.query(`CREATE OR REPLACE VIEW crf AS ${unionSql(perModelPresence.crf)}`);
+    for (const req of ['cde', 'cde_classification', 'provenance']) {
+      if (!modelFile[req]) throw new Error(`catalog manifest missing required model: ${req}`);
     }
 
-    // ── Optional: Bundle ────────────────────────────────────────────────────
-    if (perModelPresence.bundle?.length) {
-      await conn.query(`CREATE OR REPLACE VIEW bundle AS ${unionSql(perModelPresence.bundle)}`);
-    } else {
-      // Empty stub so downstream SQL keeps working without branching.
-      await conn.query(`
-        CREATE OR REPLACE VIEW bundle AS
-        SELECT
-          CAST(NULL AS VARCHAR) AS id,
-          CAST(NULL AS VARCHAR) AS bundle_name,
-          CAST(NULL AS VARCHAR) AS description,
-          CAST(NULL AS VARCHAR) AS display_name,
-          CAST(NULL AS VARCHAR) AS domain,
-          CAST(NULL AS VARCHAR) AS subdomain,
-          CAST(NULL AS VARCHAR) AS category,
-          CAST(NULL AS VARCHAR) AS working_group,
-          CAST(NULL AS VARCHAR) AS _source_key,
-          CAST(NULL AS INTEGER) AS _source_order
-        LIMIT 0
-      `);
-    }
+    // Each records.jsonl line is {id, data:{...}}. Read `data` as JSON so fields
+    // absent from every record (e.g. keywords) resolve to NULL via `->>` instead
+    // of a struct-binder error.
+    const jsonSrc = (fileId: string) =>
+      `read_json('${fileId}', format='newline_delimited', columns={'id': 'VARCHAR', 'data': 'JSON'})`;
+    // Pipe-join a scalar sub-field across a nested JSON array of objects.
+    const arrJoin = (path: string) =>
+      `NULLIF(array_to_string(CAST(json_extract(data, '${path}') AS VARCHAR[]), '|'), '')`;
+    const pvJoin = (sub: string) => arrJoin(`$.permissible_values[*].${sub}`);
+    // Pipe-join a top-level JSON string array (aliases, keywords).
+    const strArr = (key: string) =>
+      `NULLIF(array_to_string(CAST(data->'${key}' AS VARCHAR[]), '|'), '')`;
 
-    // ── Source-label lookup (in-memory, from manifest) ──────────────────────
-    const sourceLabelsUnion = sources
-      .map((s) => {
-        const studyType =
-          s.study_type === 'Clinical' || s.study_type === 'Preclinical'
-            ? `'${s.study_type}'`
-            : 'CAST(NULL AS VARCHAR)';
-        const kind = s.kind === 'sample' ? "'sample'" : "'production'";
-        return `SELECT '${s.key.replace(/'/g, "''")}' AS source_key, '${s.label.replace(/'/g, "''")}' AS label, ${s.order} AS ord, ${studyType} AS study_type, ${kind} AS kind`;
-      })
-      .join('\nUNION ALL\n');
-    await conn.query(
-      `CREATE OR REPLACE VIEW source_labels AS ${sourceLabelsUnion}`,
-    );
-
-    // ── Canonical CDE reconciliation ────────────────────────────────────────
-    // Match CDEs across sources primarily by nlm_identifier, then dec_identifier,
-    // then normalized cde_name. A CDE that appears in multiple sources becomes
-    // one canonical row; its origins are aggregated as a pipe-joined label list.
+    // ── provenance + source labels (from the catalog's own provenance rows) ──
     await conn.query(`
-      CREATE OR REPLACE VIEW cde_keyed AS
-      SELECT *,
-        COALESCE(
-          NULLIF(TRIM(nlm_identifier), ''),
-          NULLIF(TRIM(dec_identifier), ''),
-          'name:' || LOWER(TRIM(REGEXP_REPLACE(cde_name, '[^a-zA-Z0-9]+', ' ', 'g')))
-        ) AS canonical_key
-      FROM cde_raw
+      CREATE OR REPLACE VIEW provenance AS
+      SELECT id,
+             data->>'label'      AS label,
+             data->>'source_key' AS source_key,
+             data->>'study_type' AS study_type,
+             data->>'kind'       AS kind
+      FROM ${jsonSrc(modelFile.provenance)}
+    `);
+    await conn.query(`
+      CREATE OR REPLACE VIEW source_labels AS
+      SELECT source_key, label, study_type, kind, 0 AS ord FROM provenance
     `);
 
-    // For each (per-source) cde_id, compute the canonical id (first-source wins).
-    await conn.query(`
-      CREATE OR REPLACE VIEW cde_id_map AS
-      SELECT
-        id AS original_id,
-        FIRST_VALUE(id) OVER (
-          PARTITION BY canonical_key ORDER BY _source_order
-        ) AS canonical_id,
-        canonical_key,
-        _source_key
-      FROM cde_keyed
-    `);
-
-    // Canonical CDE rows: one per canonical_key, built by taking the first
-    // NON-NULL value per column across all source rows, ordered by
-    // _source_order. arg_min(col, _source_order) ignores rows where col IS
-    // NULL, so a sparse field that's only populated on a lower-priority
-    // source (e.g. NLM's `registration_status` when NINDS is "first") still
-    // makes it onto the canonical row. When two sources both set the same
-    // field, the higher-priority one (lower _source_order) wins.
-    await conn.query(`
-      CREATE OR REPLACE VIEW cde AS
-      WITH origins AS (
-        -- string_agg without ORDER BY is non-deterministic (origins can flip
-        -- between "A · B" and "B · A" between queries). Aggregate via array
-        -- → sort → join so the displayed list is stable.
-        SELECT k.canonical_key,
-               array_to_string(
-                 array_sort(array_agg(DISTINCT COALESCE(sl.label, k._source_key))),
-                 ' · '
-               ) AS origins,
-               array_to_string(
-                 array_sort(array_agg(DISTINCT k._source_key)),
-                 ','
-               ) AS origin_keys,
-               count(DISTINCT k._source_key) AS origin_count,
-               array_to_string(
-                 array_sort(array_agg(DISTINCT k._study_type)),
-                 ','
-               ) AS study_types,
-               count(DISTINCT k._study_type) AS study_type_count
-        FROM cde_keyed k
-        LEFT JOIN source_labels sl ON sl.source_key = k._source_key
-        GROUP BY k.canonical_key
-      ),
-      canonical AS (
-        SELECT canonical_key,
-               arg_min(COLUMNS(* EXCLUDE (canonical_key, _source_order)), _source_order)
-        FROM cde_keyed
-        GROUP BY canonical_key
-      )
-      SELECT c.*,
-             o.origins,
-             o.origin_keys,
-             o.origin_count,
-             o.study_types,
-             o.study_type_count
-      FROM canonical c
-      LEFT JOIN origins o USING (canonical_key)
-    `);
-
-    // Remap CLASSIFIES relationships to point at the canonical CDE id.
-    // Other relationship types (PART_OF, SOURCED_FROM) are kept as-is.
-    // All id columns can arrive as UUID or VARCHAR depending on source. Cast
-    // target_id to VARCHAR so downstream joins against c.id / b.id / p.id (also
-    // cast below) compare cleanly.
+    // ── relationships (rename to the source_id/target_id/type contract) ──────
     await conn.query(`
       CREATE OR REPLACE VIEW relationships AS
-      SELECT
-        CAST(r.source_id AS VARCHAR) AS source_id,
-        CASE WHEN r.type = 'CLASSIFIES'
-             THEN COALESCE(CAST(m.canonical_id AS VARCHAR), CAST(r.target_id AS VARCHAR))
-             ELSE CAST(r.target_id AS VARCHAR)
-        END AS target_id,
-        r.type,
-        r._source_key
-      FROM relationships_raw r
-      LEFT JOIN cde_id_map m ON CAST(m.original_id AS VARCHAR) = CAST(r.target_id AS VARCHAR)
+      SELECT CAST(source_record_id AS VARCHAR) AS source_id,
+             CAST(target_record_id AS VARCHAR) AS target_id,
+             relationship_type                 AS type,
+             CAST(NULL AS VARCHAR)              AS _source_key
+      FROM read_csv_auto('catalog__relationships', header=true)
     `);
 
-    // ── Concept registry (derived global) ───────────────────────────────────
-    // First-class concept entity + cde→concept relationship, derived at
-    // data-prep time from NLM dec_identifier columns. Empty stub views so
-    // downstream SQL can JOIN unconditionally even when no source carried
-    // dec_identifier (fully NINDS- or demo-only loadouts).
-    if (derivedFileIds.concept) {
-      await conn.query(
-        `CREATE OR REPLACE VIEW concept AS SELECT * FROM '${derivedFileIds.concept}'`,
-      );
+    // ── cde (flat, one row per CDE; PVs flattened; origins from SOURCED_FROM) ─
+    await conn.query(`
+      CREATE OR REPLACE VIEW cde AS
+      WITH rows AS (SELECT id, data FROM ${jsonSrc(modelFile.cde)}),
+      origins AS (
+        SELECT r.source_id AS cde_id,
+               array_to_string(array_sort(array_agg(DISTINCT p.label)), ' · ')    AS origins,
+               array_to_string(array_sort(array_agg(DISTINCT p.source_key)), ',') AS origin_keys,
+               count(DISTINCT p.source_key)                                       AS origin_count,
+               array_to_string(array_sort(array_agg(DISTINCT p.study_type)), ',') AS study_types,
+               count(DISTINCT p.study_type)                                       AS study_type_count
+        FROM relationships r
+        JOIN provenance p ON CAST(p.id AS VARCHAR) = r.target_id
+        WHERE r.type = 'SOURCED_FROM'
+        GROUP BY r.source_id
+      )
+      SELECT
+        rows.id,
+        data->>'canonical_key'            AS canonical_key,
+        data->>'cde_name'                 AS cde_name,
+        ${strArr('aliases')}              AS aliases,
+        data->>'cde_data_type'            AS cde_data_type,
+        data->>'cde_definition'           AS cde_definition,
+        data->>'cde_source'               AS cde_source,
+        data->>'cde_type'                 AS cde_type,
+        data->>'steward_org'              AS steward_org,
+        data->>'registration_status'      AS registration_status,
+        ${strArr('keywords')}             AS keywords,
+        data->>'preferred_question_text'  AS preferred_question_text,
+        ${pvJoin('label')}                AS pv_labels,
+        ${pvJoin('code')}                 AS pv_codes,
+        ${pvJoin('definition')}           AS pv_definitions,
+        ${pvJoin('code_system')}          AS pv_code_systems,
+        ${pvJoin('concept_curie')}        AS pv_concept_identifiers,
+        ${pvJoin('terminology_source')}   AS pv_terminology_sources,
+        data->>'unit_of_measure'          AS unit_of_measure,
+        TRY_CAST(data->>'min_value' AS DOUBLE) AS min_value,
+        TRY_CAST(data->>'max_value' AS DOUBLE) AS max_value,
+        data->>'cde_origin'               AS cde_origin,
+        data->>'population'               AS population,
+        data->>'cdisc_domain'             AS cdisc_domain,
+        data->>'cdisc_variable_name'      AS cdisc_variable_name,
+        data->>'cdisc_variable_label'     AS cdisc_variable_label,
+        data->>'references'               AS "references",
+        data->>'nlm_identifier'           AS nlm_identifier,
+        data->>'dec_identifier'           AS dec_identifier,
+        data->>'dec_terminology_source'   AS dec_terminology_source,
+        ${arrJoin('$.other_identifiers[*].value')} AS other_identifiers,
+        COALESCE(o.origins, data->>'cde_source') AS origins,
+        o.origin_keys,
+        COALESCE(o.origin_count, 0)       AS origin_count,
+        o.study_types,
+        COALESCE(o.study_type_count, 0)   AS study_type_count
+      FROM rows
+      LEFT JOIN origins o ON o.cde_id = CAST(rows.id AS VARCHAR)
+    `);
+
+    // ── cde_classification: pivot long-form (one row per CDE×context) to the
+    //    wide disease_*/classification_* contract the views expect ────────────
+    const ctxCol = (label: string, val: string) =>
+      `CASE WHEN data->>'context' = '${label}' THEN ${val} END`;
+    await conn.query(`
+      CREATE OR REPLACE VIEW cde_classification AS
+      SELECT
+        id,
+        data->>'variable_name'           AS variable_name,
+        data->>'version_name'            AS version_name,
+        data->>'version_date'            AS version_date,
+        data->>'notes'                   AS notes,
+        data->>'additional_instructions' AS additional_instructions,
+        data->>'domain'                  AS domain,
+        data->>'subdomain'               AS subdomain,
+        data->>'category'                AS category,
+        data->>'working_group'           AS working_group,
+        ${ctxCol('Agnostic', `'Y'`)}     AS disease_agnostic,
+        ${ctxCol('Neurotrauma', `'Y'`)}  AS disease_neurotrauma,
+        ${ctxCol('TBI', `'Y'`)}          AS disease_tbi,
+        ${ctxCol('PTE', `'Y'`)}          AS disease_pte,
+        ${ctxCol('SCI', `'Y'`)}          AS disease_sci,
+        ${ctxCol('Epilepsy', `'Y'`)}     AS disease_epilepsy,
+        ${ctxCol('Agnostic', `data->>'tier'`)}    AS classification_agnostic,
+        ${ctxCol('Neurotrauma', `data->>'tier'`)} AS classification_neurotrauma,
+        ${ctxCol('TBI', `data->>'tier'`)}         AS classification_tbi,
+        ${ctxCol('PTE', `data->>'tier'`)}         AS classification_pte,
+        ${ctxCol('SCI', `data->>'tier'`)}         AS classification_sci,
+        ${ctxCol('Epilepsy', `data->>'tier'`)}    AS classification_epilepsy
+      FROM ${jsonSrc(modelFile.cde_classification)}
+    `);
+
+    // ── bundle (optional) ────────────────────────────────────────────────────
+    if (modelFile.bundle) {
+      await conn.query(`
+        CREATE OR REPLACE VIEW bundle AS
+        SELECT id,
+               data->>'bundle_name'   AS bundle_name,
+               data->>'description'   AS description,
+               data->>'display_name'  AS display_name,
+               data->>'domain'        AS domain,
+               data->>'subdomain'     AS subdomain,
+               data->>'category'      AS category,
+               data->>'working_group' AS working_group
+        FROM ${jsonSrc(modelFile.bundle)}
+      `);
     } else {
       await conn.query(`
-        CREATE OR REPLACE VIEW concept AS
-        SELECT
-          CAST(NULL AS VARCHAR) AS id,
-          CAST(NULL AS VARCHAR) AS source,
-          CAST(NULL AS VARCHAR) AS identifier,
-          CAST(NULL AS VARCHAR) AS preferred_label,
-          CAST(NULL AS VARCHAR) AS definition,
-          CAST(NULL AS VARCHAR) AS alt_labels
+        CREATE OR REPLACE VIEW bundle AS SELECT
+          CAST(NULL AS VARCHAR) AS id, CAST(NULL AS VARCHAR) AS bundle_name,
+          CAST(NULL AS VARCHAR) AS description, CAST(NULL AS VARCHAR) AS display_name,
+          CAST(NULL AS VARCHAR) AS domain, CAST(NULL AS VARCHAR) AS subdomain,
+          CAST(NULL AS VARCHAR) AS category, CAST(NULL AS VARCHAR) AS working_group
         WHERE false
       `);
     }
-    if (derivedFileIds.cde_represents_concept) {
-      // Remap cde_id through the canonical-id map so concept lookups land on
-      // the picked-source CDE row, matching the cde view's identity.
-      await conn.query(`
-        CREATE OR REPLACE VIEW cde_represents_concept AS
-        SELECT
-          COALESCE(CAST(m.canonical_id AS VARCHAR), CAST(r.cde_id AS VARCHAR)) AS cde_id,
-          r.concept_id,
-          r.role,
-          r._source_key
-        FROM '${derivedFileIds.cde_represents_concept}' r
-        LEFT JOIN cde_id_map m ON CAST(m.original_id AS VARCHAR) = CAST(r.cde_id AS VARCHAR)
-      `);
-    } else {
-      await conn.query(`
-        CREATE OR REPLACE VIEW cde_represents_concept AS
-        SELECT
-          CAST(NULL AS VARCHAR) AS cde_id,
-          CAST(NULL AS VARCHAR) AS concept_id,
-          CAST(NULL AS VARCHAR) AS role,
-          CAST(NULL AS VARCHAR) AS _source_key
-        WHERE false
-      `);
-    }
+
+    // ── concept: the catalog carries no concept rows yet (current sources have
+    //    no dec_identifier); empty stubs matching the app's expected columns ──
+    await conn.query(`
+      CREATE OR REPLACE VIEW concept AS SELECT
+        CAST(NULL AS VARCHAR) AS id, CAST(NULL AS VARCHAR) AS source,
+        CAST(NULL AS VARCHAR) AS identifier, CAST(NULL AS VARCHAR) AS preferred_label,
+        CAST(NULL AS VARCHAR) AS definition, CAST(NULL AS VARCHAR) AS alt_labels
+      WHERE false
+    `);
+    await conn.query(`
+      CREATE OR REPLACE VIEW cde_represents_concept AS SELECT
+        CAST(NULL AS VARCHAR) AS cde_id, CAST(NULL AS VARCHAR) AS concept_id,
+        CAST(NULL AS VARCHAR) AS role, CAST(NULL AS VARCHAR) AS _source_key
+      WHERE false
+    `);
+
+    // ── crf: not a catalog model; empty stub so CRF views don't error ────────
+    await conn.query(`
+      CREATE OR REPLACE VIEW crf AS SELECT
+        CAST(NULL AS VARCHAR) AS id, CAST(NULL AS VARCHAR) AS crf_name,
+        CAST(NULL AS VARCHAR) AS title, CAST(NULL AS VARCHAR) AS disease_scope,
+        CAST(NULL AS VARCHAR) AS items, CAST(NULL AS VARCHAR) AS source,
+        CAST(NULL AS VARCHAR) AS version, CAST(NULL AS VARCHAR) AS description
+      WHERE false
+    `);
 
     // ── Detect optional classification columns (same pattern as before) ─────
     const clsColsRes = await conn.query(
@@ -606,10 +539,13 @@ async function init(): Promise<DuckDBHandle> {
     // value lists against published CDASH/SDTM codelists. Tolerant of missing
     // files: if `yarn prepare-data` hasn't run yet the views fall back to
     // empty stubs so the rest of the app stays functional.
-    const ctBase = `${base}/cdisc-ct`;
+    // App-bundled static reference data under /data (independent of the CDE
+    // catalog release above); tolerant of absence.
+    const dataBase = `${window.location.origin}${import.meta.env.BASE_URL || '/'}data`;
+    const ctBase = `${dataBase}/cdisc-ct`;
     let ctRegistered = false;
     for (const name of ['codelist.parquet', 'codelist_item.parquet']) {
-      const url = `${ctBase}/${name}${ver}`;
+      const url = `${ctBase}/${name}`;
       if (!(await fetchWithBinaryCheck(url))) {
         ctRegistered = false;
         break;
