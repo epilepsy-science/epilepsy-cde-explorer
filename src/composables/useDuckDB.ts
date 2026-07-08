@@ -604,14 +604,23 @@ export function useDuckDB() {
     params?: unknown[],
   ): Promise<T[]> {
     const { conn } = await handlePromise!;
+    // duckdb-wasm returns BIGINT columns (count(), etc.) as JS BigInt, which
+    // throws when mixed with plain numbers in template arithmetic (e.g.
+    // `bundle_count - 1`). Coerce BigInt -> Number; catalog counts are well
+    // within Number's safe range.
+    const coerce = (r: { toJSON(): Record<string, unknown> }): Record<string, unknown> => {
+      const o = r.toJSON();
+      for (const k in o) if (typeof o[k] === 'bigint') o[k] = Number(o[k]);
+      return o;
+    };
     if (params && params.length) {
       const stmt = await conn.prepare(sql);
       const res = await stmt.query(...params);
       await stmt.close();
-      return res.toArray().map((r) => r.toJSON()) as T[];
+      return res.toArray().map(coerce) as T[];
     }
     const res = await conn.query(sql);
-    return res.toArray().map((r) => r.toJSON()) as T[];
+    return res.toArray().map(coerce) as T[];
   }
 
   return {
