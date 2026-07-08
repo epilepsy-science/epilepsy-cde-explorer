@@ -160,8 +160,14 @@ const option_ = computed(() => {
     standalone: CdeRow[];
   }>();
 
+  // cde_full has one row per (CDE × context); dedupe so a CDE classified for
+  // multiple diseases isn't a duplicate leaf within the same domain/bundle.
+  const seen = new Set<string>();
   for (const r of rows.value) {
     const domain = r.cde_domain || 'Unclassified';
+    const dedupeKey = `${domain}|${r.bundle_id ?? ''}|${r.cde_id}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
     if (!byDomain.has(domain)) {
       byDomain.set(domain, { bundles: new Map(), standalone: [] });
     }

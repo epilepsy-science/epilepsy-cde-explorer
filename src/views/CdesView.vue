@@ -455,7 +455,7 @@ async function loadByConcept() {
 
   let unmappedChildren: CdeRow[] = [];
   if (includeUnmapped) {
-    unmappedChildren = await query<CdeRow>(
+    const rows = await query<CdeRow>(
       `${ctePrefix}
        SELECT f.* FROM cde_full f
        WHERE f.cde_id IN (SELECT cde_id FROM matching_cdes)
@@ -463,11 +463,26 @@ async function loadByConcept() {
        ORDER BY f.cde_name`,
       params,
     );
+    // cde_full is per-context; keep one row per CDE.
+    const seen = new Set<string>();
+    for (const c of rows) {
+      if (seen.has(c.cde_id)) continue;
+      seen.add(c.cde_id);
+      unmappedChildren.push(c);
+    }
   }
 
+  // Dedupe per-context cde_full rows to one row per CDE within each concept.
   const byConcept = new Map<string, CdeRow[]>();
+  const seenByConcept = new Map<string, Set<string>>();
   for (const c of children) {
-    if (!byConcept.has(c._concept_id)) byConcept.set(c._concept_id, []);
+    if (!byConcept.has(c._concept_id)) {
+      byConcept.set(c._concept_id, []);
+      seenByConcept.set(c._concept_id, new Set());
+    }
+    const seen = seenByConcept.get(c._concept_id)!;
+    if (seen.has(c.cde_id)) continue;
+    seen.add(c.cde_id);
     byConcept.get(c._concept_id)!.push(c);
   }
 
