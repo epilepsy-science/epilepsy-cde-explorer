@@ -288,7 +288,7 @@ async function loadGrouped() {
       const ex = m.get(c.cde_id);
       if (!ex) { m.set(c.cde_id, { ...c }); continue; }
       for (const col of MERGE_COLS) {
-        if (!ex[col] && c[col]) (ex as Record<string, unknown>)[col] = c[col];
+        if (!ex[col] && c[col]) (ex as unknown as Record<string, unknown>)[col] = c[col];
       }
     }
     return [...m.values()];

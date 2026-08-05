@@ -31,6 +31,10 @@ resource "aws_amplify_app" "this" {
   environment_variables = {
     VITE_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
     VITE_GA_MEASUREMENT_ID  = var.ga_measurement_id
+    # Published CDE catalog (cde-service) the dashboard reads via DuckDB-WASM.
+    # Production points at the official prod catalog; local dev overrides this
+    # in .env.local (e.g. the dev catalog) while the v2 schema work lands.
+    VITE_CDE_CATALOG_URL = "https://cde-catalog.pennsieve.io"
   }
 }
 

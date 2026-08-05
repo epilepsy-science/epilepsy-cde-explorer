@@ -90,7 +90,7 @@ async function init(): Promise<DuckDBHandle> {
       duckdb.DuckDBDataProtocol.HTTP,
       false,
     );
-    for (const req of ['cde', 'cde_classification', 'provenance']) {
+    for (const req of ['cde', 'cde_classification', 'provenance', 'form']) {
       if (!modelFile[req]) throw new Error(`catalog manifest missing required model: ${req}`);
     }
 
@@ -246,6 +246,21 @@ async function init(): Promise<DuckDBHandle> {
       `);
     }
 
+    // ── form (v2): CRF / instrument / survey — the ~1,750 case report forms.
+    //    Distinct from `bundle` (indivisible validated instruments). Record id
+    //    is the form_key; member CDEs are the cde→form PART_OF edges. ─────────
+    await conn.query(`
+      CREATE OR REPLACE VIEW form AS
+      SELECT id,
+             data->>'form_key'      AS form_key,
+             data->>'form_name'     AS form_name,
+             data->>'steward_org'   AS steward_org,
+             data->>'steward_code'  AS steward_code,
+             TRY_CAST(data->>'num_questions' AS INTEGER) AS num_questions,
+             ${strArr('member_cde_keys')} AS member_cde_keys
+      FROM ${jsonSrc(modelFile.form)}
+    `);
+
     // ── concept: the catalog carries no concept rows yet (current sources have
     //    no dec_identifier); empty stubs matching the app's expected columns ──
     await conn.query(`
@@ -323,6 +338,19 @@ async function init(): Promise<DuckDBHandle> {
         FROM relationships r
         JOIN provenance p ON CAST(p.id AS VARCHAR) = r.target_id
         WHERE r.type = 'SOURCED_FROM'
+        GROUP BY r.source_id
+      ),
+      form_membership AS (
+        -- v2: a CDE's CRF membership is the PART_OF edge whose target is a form
+        -- (PART_OF also links cde→bundle; the JOIN to form filters to forms).
+        -- Aggregated per CDE so joining it into cde_full doesn't multiply rows.
+        SELECT r.source_id AS cde_id,
+               nullif(string_agg(DISTINCT CAST(f.id AS VARCHAR), '|'), '') AS form_ids,
+               nullif(string_agg(DISTINCT f.form_name, '|'), '')           AS form_names,
+               count(DISTINCT f.id)                                        AS form_count
+        FROM relationships r
+        JOIN form f ON CAST(f.id AS VARCHAR) = r.target_id
+        WHERE r.type = 'PART_OF'
         GROUP BY r.source_id
       )
       SELECT
@@ -405,6 +433,9 @@ async function init(): Promise<DuckDBHandle> {
         b.subdomain                   AS bundle_subdomain,
         b.category                    AS bundle_category,
         b.working_group               AS bundle_working_group,
+        fm.form_ids,
+        fm.form_names,
+        COALESCE(fm.form_count, 0)    AS form_count,
         s.source_labels,
         s.source_count
       FROM cde c
@@ -413,6 +444,7 @@ async function init(): Promise<DuckDBHandle> {
       LEFT JOIN bundle_of_cls bc  ON bc.cls_id = k.cls_id
       LEFT JOIN bundle b          ON CAST(b.id AS VARCHAR) = bc.bundle_id
       LEFT JOIN sources s         ON s.cde_id = CAST(c.id AS VARCHAR)
+      LEFT JOIN form_membership fm ON fm.cde_id = CAST(c.id AS VARCHAR)
     `);
 
     // One-row-per-canonical-CDE rollup of cde_full. Classification +
@@ -511,6 +543,10 @@ async function init(): Promise<DuckDBHandle> {
         nullif(string_agg(DISTINCT bundle_category, '|'), '') AS bundle_categories,
         nullif(string_agg(DISTINCT bundle_working_group, '|'), '') AS bundle_working_groups,
         count(DISTINCT bundle_id) FILTER (WHERE bundle_id IS NOT NULL) AS bundle_count,
+        -- Form (CRF) attribution — already aggregated per-CDE in cde_full.
+        any_value(form_ids)              AS form_ids,
+        any_value(form_names)            AS form_names,
+        any_value(form_count)            AS form_count,
         count(DISTINCT cls_id)    FILTER (WHERE cls_id IS NOT NULL)    AS context_count
       FROM cde_full
       GROUP BY cde_id

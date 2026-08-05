@@ -60,12 +60,14 @@ export interface CdeRow {
   disease_tbi: 'Y' | 'N' | null;
   disease_pte: 'Y' | 'N' | null;
   disease_sci: 'Y' | 'N' | null;
+  disease_epilepsy: 'Y' | 'N' | null;
 
   classification_agnostic: string | null;
   classification_neurotrauma: string | null;
   classification_tbi: string | null;
   classification_pte: string | null;
   classification_sci: string | null;
+  classification_epilepsy: string | null;
 
   bundle_id: string | null;
   bundle_name: string | null;
@@ -73,6 +75,12 @@ export interface CdeRow {
   bundle_subdomain: string | null;
   bundle_category: string | null;
   bundle_working_group: string | null;
+
+  // Form (CRF) membership — v2 `form` model, aggregated per CDE (cde→form
+  // PART_OF). Pipe-joined ids/names; count of distinct forms the CDE is on.
+  form_ids: string | null;
+  form_names: string | null;
+  form_count: number;
 
   // CDE-level taxonomy from cde_full (COALESCE(cl.<col>, b.<col>)). Surfaces
   // on every row regardless of whether the CDE belongs to a bundle. There
@@ -164,6 +172,12 @@ export interface CdeCanonicalRow {
   bundle_categories: string | null;
   bundle_working_groups: string | null;
   bundle_count: number;
+
+  // Form (CRF) attribution — pipe-joined distinct forms the CDE appears on.
+  form_ids: string | null;
+  form_names: string | null;
+  form_count: number;
+
   context_count: number;
 
   source_labels: string | null;
@@ -191,6 +205,20 @@ export interface BundleRow {
   working_group: string;
   cde_group: string | null;
   cde_count: number;
+}
+
+/** A row from the `form` view — a v2 CRF / instrument / survey. Distinct from
+ *  BundleRow (indivisible validated instruments). `member_cde_keys` is the
+ *  pipe-joined ordered member list carried on the form record; per-CDE
+ *  membership is also available via the cde→form PART_OF edges. */
+export interface FormRow {
+  id: string;
+  form_key: string;
+  form_name: string;
+  steward_org: string | null;
+  steward_code: string | null;
+  num_questions: number | null;
+  member_cde_keys: string | null;
 }
 
 // ── Concept layer ──────────────────────────────────────────────────────────
