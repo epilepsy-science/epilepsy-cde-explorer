@@ -35,24 +35,72 @@ The dashboard currently reads models `cde`, `cde_classification`, `bundle`,
 | Concept | empty stub (`useDuckDB.ts:251-263`) | real `concept` model + `cde → concept` REPRESENTS |
 | CRF | empty stub, user-authored only | still not in the catalog — keep client/localStorage CRFs |
 
-## Key decisions (resolve before/while implementing)
+## Key decisions
 
-- **D1 — target catalog.** Point production Amplify at the official prod catalog
-  `https://cde-catalog.pennsieve.io`; use the dev catalog for local dev. Set via
-  `VITE_CDE_CATALOG_URL` per environment (currently unset → hardcoded dev default
-  at `useDuckDB.ts:66`).
-- **D2 — v2 timing.** Prod is still v1. The v2 query-layer alignment (below) must
-  **land together with the prod catalog becoming v2** (the pending cde-service prod
-  migration), or the prod dashboard breaks. Options: (a) hold the v2 alignment on a
-  branch and ship it the day prod migrates; (b) point prod Amplify at the dev v2
-  catalog temporarily. Recommend (a).
-- **D3 — jsonl vs parquet.** The catalog publishes both `records.jsonl` and
-  `records.parquet` (+ `records-list.parquet` for `cde`, with pre-flattened
-  pipe-joined `pv_*`/`other_identifiers` columns). Current code reads jsonl and
-  reshapes with `data->>'…'`. Consider reading `records-list.parquet` for `cde` to
-  drop the JSON-extraction + pv pipe-splitting. Optional; jsonl works.
+- **D1 — target catalog. DONE.** Prod Amplify points at `https://cde-catalog.pennsieve.io`
+  via terraform (`terraform/main.tf` `VITE_CDE_CATALOG_URL`); local dev overrides in
+  `.env.local` (dev catalog). Once scoping (D4) lands, prod points at the scoped
+  **collection** URL, not the full catalog root.
+- **D2 — v2 timing.** Prod is still v1. The v2 query-layer alignment must **land with
+  the prod catalog becoming v2** (pending cde-service prod migration). Hold on this
+  branch; local dev runs against the dev v2 catalog meanwhile.
+- **D3 — jsonl → parquet. DECIDED: yes, do it.** The catalog publishes `records.parquet`
+  per model (+ `records-list.parquet` for `cde`, pre-flattened pipe-joined
+  `pv_*`/`other_identifiers`). Switch the DuckDB reads from `records.jsonl` +
+  `data->>'…'` extraction to parquet with column/row pushdown — the main fix for the
+  slow load. See Step P.
+- **D4 — scoping. DECIDED: server-side published collection (option 2b).** Only
+  ~6,573 of 26,343 CDEs are neuro/epilepsy; the rest (Sickle Cell, Parkinson's,
+  Stroke, ALS, …) is noise, and it lives *inside* NINDS, so source selection can't
+  scope it — the axis is classification **context**. cde-service publishes a scoped
+  collection; the dashboard reads that. See Step C.
 
-## Steps
+## Step C — Scoped published collection (cde-service) — the relevance fix
+
+Goal: cde-service publishes a small, neuro/epilepsy-scoped view of the catalog that
+the dashboard (and any other scoped consumer) reads instead of the full 26k.
+
+Data that shapes this (dev catalog `20260805T025409Z`):
+- 82 distinct classification contexts; ~6,573 CDEs in neuro/epilepsy contexts,
+  ~8.5k including `General (For all diseases)`.
+- Allow-list must include spelling variants — both `Sport Related Concussion` and
+  `Sport-Related Concussion` are present (free-text context drift).
+
+Design (in cde-service, at publish time):
+- Define named **collections** in config (SSM or a repo file), each an allow-list of
+  classification `context` values (+ optionally `General (For all diseases)`),
+  e.g. `neuro-epilepsy = [Traumatic Brain Injury, Preclinical TBI, Sport Related
+  Concussion, Sport-Related Concussion, Spinal Cord Injury, Epilepsy, General (For
+  all diseases)]`.
+- On publish, in addition to the full release, emit a filtered subset under
+  `cde/collections/<name>/versions/<v>/…` with its own `latest.json` + `manifest.json`
+  + per-model `records.{jsonl,parquet}` + `relationships.csv` + `form_member_tier`,
+  containing only: CDEs whose classification context ∈ allow-list; those CDEs'
+  in-scope classifications; the forms/bundles they belong to (+ classifications);
+  concepts they REPRESENT; relationships among retained records; all provenance.
+- Same layout/contract as the root catalog, so the dashboard's load layer is
+  unchanged except the base URL.
+- Consider a controlled context vocabulary later to end the spelling drift.
+
+Dashboard side: point `VITE_CDE_CATALOG_URL` at
+`https://cde-catalog.pennsieve.io/cde/collections/neuro-epilepsy` (path prefix), or
+add a `VITE_CDE_COLLECTION` knob the load layer appends.
+
+## Step P — Parquet reads (perf) — the speed fix
+
+Goal: cut the slow load (26k CDEs + 76k classifications + 235k relationships parsed
+from JSONL).
+- Switch `jsonSrc()` / the model reads in `useDuckDB.ts` from `read_json` on
+  `records.jsonl` to `read_parquet` on `records.parquet` (and `records-list.parquet`
+  for `cde`, which already carries the flat pipe-joined `pv_*` / `other_identifiers`
+  columns — dropping the `data->>'…'` + array-join reshaping).
+- Keep the relationships read (`relationships.csv`) or move to a parquet edges file
+  if published.
+- Let DuckDB-WASM range-read parquet over HTTP (column + predicate pushdown) instead
+  of downloading + JSON-parsing whole files.
+- Independent of scoping; compounding win when combined with the smaller collection.
+
+## Steps (dashboard query-layer alignment)
 
 ### 1. Catalog URL wiring (D1)
 - Confirm `VITE_CDE_CATALOG_URL` is the single knob (`useDuckDB.ts:65-67`). ✓ already.
