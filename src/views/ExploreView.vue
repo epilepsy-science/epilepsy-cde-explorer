@@ -2,13 +2,13 @@
 import { onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDiseaseLens, DISEASE_OPTIONS, type DiseaseKey } from '@/composables/useDiseaseLens';
-import { useStudyType, type StudyTypeFilter } from '@/composables/useStudyType';
+import { usePopulation, POPULATION_OPTIONS, type PopulationFilter } from '@/composables/usePopulation';
 import ExploreOverviewTab from '@/components/explore/ExploreOverviewTab.vue';
 import ExploreTreeTab from '@/components/explore/ExploreTreeTab.vue';
 import ExploreTreemapTab from '@/components/explore/ExploreTreemapTab.vue';
 
 const { lens, option } = useDiseaseLens();
-const { filter: studyTypeFilter } = useStudyType();
+const { filter: populationLens } = usePopulation();
 type ExploreTab = 'overview' | 'tree' | 'treemap';
 const tab = ref<ExploreTab>('overview');
 
@@ -16,14 +16,14 @@ const route = useRoute();
 const router = useRouter();
 
 // ── URL ↔ filter sync ────────────────────────────────────────────────────────
-// Deep-linkable params: ?focus=<DiseaseKey>&studyType=<all|Clinical|Preclinical>
+// Deep-linkable params: ?focus=<DiseaseKey>&population=<all|Adult|Pediatric|…>
 // &tab=<overview|tree|treemap>. Mount-time read seeds the controls; subsequent
 // changes push back to the URL via router.replace so the back button isn't
 // flooded with intermediate states. Composable state is shared across views,
 // so reading once on enter is sufficient.
 
 const VALID_DISEASE_KEYS = new Set(DISEASE_OPTIONS.map((o) => o.key));
-const VALID_STUDY_TYPES = new Set(['all', 'Clinical', 'Preclinical']);
+const VALID_POPULATIONS = new Set(POPULATION_OPTIONS.map((o) => o.value));
 const VALID_TABS: readonly ExploreTab[] = ['overview', 'tree', 'treemap'];
 
 function readQueryString(name: string): string | null {
@@ -37,9 +37,9 @@ onMounted(() => {
   if (focus && VALID_DISEASE_KEYS.has(focus as DiseaseKey)) {
     lens.value = focus as DiseaseKey;
   }
-  const st = readQueryString('studyType');
-  if (st && VALID_STUDY_TYPES.has(st)) {
-    studyTypeFilter.value = st as StudyTypeFilter;
+  const pop = readQueryString('population');
+  if (pop && VALID_POPULATIONS.has(pop)) {
+    populationLens.value = pop as PopulationFilter;
   }
   const t = readQueryString('tab');
   if (t && VALID_TABS.includes(t as ExploreTab)) {
@@ -47,14 +47,14 @@ onMounted(() => {
   }
 });
 
-watch([lens, studyTypeFilter, tab], ([newLens, newSt, newTab]) => {
+watch([lens, populationLens, tab], ([newLens, newPop, newTab]) => {
   // Only carry params that differ from the defaults — keeps the URL clean
   // and matches what the user actually picked.
   const next: Record<string, string> = { ...(route.query as Record<string, string>) };
   if (newLens && newLens !== 'all') next.focus = newLens;
   else delete next.focus;
-  if (newSt && newSt !== 'all') next.studyType = newSt;
-  else delete next.studyType;
+  if (newPop && newPop !== 'all') next.population = newPop;
+  else delete next.population;
   if (newTab && newTab !== 'overview') next.tab = newTab;
   else delete next.tab;
   // Avoid redundant navigation when the URL already matches.
@@ -69,8 +69,8 @@ watch([lens, studyTypeFilter, tab], ([newLens, newSt, newTab]) => {
 function setLens(v: DiseaseKey) {
   lens.value = v;
 }
-function setStudyType(v: StudyTypeFilter) {
-  studyTypeFilter.value = v;
+function setPopulation(v: PopulationFilter) {
+  populationLens.value = v;
 }
 </script>
 
@@ -114,15 +114,19 @@ function setStudyType(v: StudyTypeFilter) {
             {{ o.label }}
           </el-radio-button>
         </el-radio-group>
-        <div class="lens-label subtle explore__lens-sub">Study type</div>
+        <div class="lens-label subtle explore__lens-sub">Population</div>
         <el-radio-group
-          :model-value="studyTypeFilter"
-          @update:model-value="(v: string | number | boolean | undefined) => setStudyType(v as StudyTypeFilter)"
+          :model-value="populationLens"
+          @update:model-value="(v: string | number | boolean | undefined) => setPopulation(v as PopulationFilter)"
           size="default"
         >
-          <el-radio-button value="all">All</el-radio-button>
-          <el-radio-button value="Clinical">Clinical</el-radio-button>
-          <el-radio-button value="Preclinical">Preclinical</el-radio-button>
+          <el-radio-button
+            v-for="o in POPULATION_OPTIONS"
+            :key="o.value"
+            :value="o.value"
+          >
+            {{ o.label }}
+          </el-radio-button>
         </el-radio-group>
       </div>
     </header>

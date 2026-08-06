@@ -2,13 +2,13 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useDuckDB } from '@/composables/useDuckDB';
 import { useDiseaseLens } from '@/composables/useDiseaseLens';
-import { useStudyType } from '@/composables/useStudyType';
+import { usePopulation } from '@/composables/usePopulation';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
 import type { CdeRow, CdeCanonicalRow } from '@/types';
 
 const { status, query } = useDuckDB();
 const { lens, option, clause } = useDiseaseLens();
-const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
+const { filter: populationLens, clause: populationClause } = usePopulation();
 
 const rows = ref<CdeRow[]>([]);
 const loading = ref(false);
@@ -20,7 +20,7 @@ async function load() {
     const parts: string[] = [];
     const lensClause = clause();
     if (lensClause) parts.push(lensClause);
-    const stClause = studyTypeClause();
+    const stClause = populationClause();
     if (stClause) parts.push(stClause);
     const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
     // One row per CDE — the tree builds N levels by splitting cde_path on
@@ -37,7 +37,7 @@ async function load() {
   }
 }
 
-watch([status, lens, studyTypeFilter], load);
+watch([status, lens, populationLens], load);
 onMounted(load);
 
 const selectedCde = ref<CdeCanonicalRow | null>(null);

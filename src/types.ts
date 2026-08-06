@@ -60,12 +60,14 @@ export interface CdeRow {
   disease_tbi: 'Y' | 'N' | null;
   disease_pte: 'Y' | 'N' | null;
   disease_sci: 'Y' | 'N' | null;
+  disease_epilepsy: 'Y' | 'N' | null;
 
   classification_agnostic: string | null;
   classification_neurotrauma: string | null;
   classification_tbi: string | null;
   classification_pte: string | null;
   classification_sci: string | null;
+  classification_epilepsy: string | null;
 
   bundle_id: string | null;
   bundle_name: string | null;
@@ -74,12 +76,22 @@ export interface CdeRow {
   bundle_category: string | null;
   bundle_working_group: string | null;
 
+  // Form (CRF) membership — v2 `form` model, aggregated per CDE (cde→form
+  // PART_OF). Pipe-joined ids/names; count of distinct forms the CDE is on.
+  form_ids: string | null;
+  form_names: string | null;
+  form_count: number;
+
   // CDE-level taxonomy from cde_full (COALESCE(cl.<col>, b.<col>)). Surfaces
   // on every row regardless of whether the CDE belongs to a bundle. There
   // is no `cde_category` — `category` on cde_classification is per-context
   // (almost always the CRF name) and bundles have their own `bundle_category`.
   cde_domain: string | null;
   cde_subdomain: string | null;
+  /** v2 flat scoping axes for this classification context (wildcard '*' → null).
+   *  cde_sub_context is the tree/treemap sub-level below domain. */
+  cde_sub_context: string | null;
+  cde_population: string | null;
   /** Canonical hierarchical path, ` / `-delimited. e.g. "Demographics / Age".
    *  Derived from domain/subdomain. */
   cde_path: string | null;
@@ -155,6 +167,9 @@ export interface CdeCanonicalRow {
   // Pipe-joined distinct values across contexts.
   cde_domain: string | null;
   cde_subdomain: string | null;
+  /** Pipe-joined distinct v2 scoping axes across contexts. */
+  cde_sub_contexts: string | null;
+  cde_populations: string | null;
   cde_paths: string | null;
 
   bundle_ids: string | null;
@@ -164,6 +179,12 @@ export interface CdeCanonicalRow {
   bundle_categories: string | null;
   bundle_working_groups: string | null;
   bundle_count: number;
+
+  // Form (CRF) attribution — pipe-joined distinct forms the CDE appears on.
+  form_ids: string | null;
+  form_names: string | null;
+  form_count: number;
+
   context_count: number;
 
   source_labels: string | null;
@@ -191,6 +212,20 @@ export interface BundleRow {
   working_group: string;
   cde_group: string | null;
   cde_count: number;
+}
+
+/** A row from the `form` view — a v2 CRF / instrument / survey. Distinct from
+ *  BundleRow (indivisible validated instruments). `member_cde_keys` is the
+ *  pipe-joined ordered member list carried on the form record; per-CDE
+ *  membership is also available via the cde→form PART_OF edges. */
+export interface FormRow {
+  id: string;
+  form_key: string;
+  form_name: string;
+  steward_org: string | null;
+  steward_code: string | null;
+  num_questions: number | null;
+  member_cde_keys: string | null;
 }
 
 // ── Concept layer ──────────────────────────────────────────────────────────
@@ -234,18 +269,16 @@ export interface CdeRepresentsConcept {
   role: ConceptRole;
 }
 
-export type Classification =
-  | 'Core'
-  | 'Recommended'
-  | 'Supplemental'
-  | 'Not Applicable'
-  | null;
+// The 3 user-facing recommendation tiers. The granular v2 catalog tiers
+// (Supplemental - Highly Recommended, Basic, Proposed, Exploratory, Tier 1) are
+// collapsed into these at the data layer (see useDuckDB `tierExpr`), so the whole
+// UI works with one simple, familiar vocabulary.
+export type Classification = 'Core' | 'Recommended' | 'Supplemental' | null;
 
 export const CLASSIFICATION_OPTIONS: Array<Exclude<Classification, null>> = [
   'Core',
   'Recommended',
   'Supplemental',
-  'Not Applicable',
 ];
 
 export const DATA_TYPES = [
@@ -370,6 +403,9 @@ export interface CrfRecord {
    *  CRF_STATUS_DEFAULT for why "Standard" isn't used as the fallback. */
   registration_status: string | null;
   items: CrfItem[];
+  /** Pipe-joined distinct populations of this CRF's member CDEs (seeded/form
+   *  CRFs only) — powers the CRF list's Population filter. Absent for custom. */
+  populations?: string | null;
   /** 'seeded' = read-only from parquet; 'custom' = user-authored, in localStorage. */
   source: 'seeded' | 'custom';
   created_at?: string;

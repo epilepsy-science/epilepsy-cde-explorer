@@ -3,13 +3,13 @@ import { computed, ref, watch, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
 import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
-import { useStudyType } from '@/composables/useStudyType';
+import { usePopulation } from '@/composables/usePopulation';
 import DonutChart from './DonutChart.vue';
 
 const router = useRouter();
 const { status, query } = useDuckDB();
 const { lens, option, clause, classificationColumn } = useDiseaseLens();
-const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
+const { filter: populationLens, clause: populationClause } = usePopulation();
 
 const heatmap = ref<HeatCell[]>([]);
 // Donut data — three slices through the same filtered CDE set.
@@ -25,7 +25,9 @@ const loading = ref(false);
 // Heatmap row dimension — what each row groups by. Tier stays on the columns
 // (3 fixed buckets) so this dimension can have many values without making
 // the heatmap unreadably wide.
-type GroupBy = 'domain' | 'subdomain' | 'source';
+// v2's classification taxonomy is a single level (`domain`) — there is no
+// subdomain/category — so group by domain or source.
+type GroupBy = 'domain' | 'source';
 const groupBy = ref<GroupBy>('domain');
 
 // Group dimensions read from the CDE-level taxonomy columns, NOT the
@@ -36,7 +38,6 @@ const groupBy = ref<GroupBy>('domain');
 // which have no bundles) to "Unassigned".
 const GROUP_BY_OPTIONS: Array<{ key: GroupBy; label: string; sqlExpr: string }> = [
   { key: 'domain', label: 'Domain', sqlExpr: `COALESCE(cde_domain, 'Unassigned')` },
-  { key: 'subdomain', label: 'Subdomain', sqlExpr: `COALESCE(cde_subdomain, 'Unassigned')` },
   { key: 'source', label: 'Source', sqlExpr: `COALESCE(origins, 'Unknown')` },
 ];
 
@@ -115,19 +116,21 @@ async function load() {
   if (status.value !== 'ready') return;
   loading.value = true;
   try {
-    const parts: string[] = [];
+    // Two WHEREs: cde_full carries the per-context `cde_population`, while
+    // cde_canonical carries the pipe-joined `cde_populations`. The disease lens
+    // (disease_* columns) exists on both.
     const lensClause = clause();
-    if (lensClause) parts.push(lensClause);
-    const stClause = studyTypeClause();
-    if (stClause) parts.push(stClause);
-    const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
+    const fullParts = [lensClause, populationClause('cde_population')].filter(Boolean);
+    const canonParts = [lensClause, populationClause('cde_populations')].filter(Boolean);
+    const whereFull = fullParts.length ? `WHERE ${fullParts.join(' AND ')}` : '';
+    const whereCanon = canonParts.length ? `WHERE ${canonParts.join(' AND ')}` : '';
     const tierCol = classificationColumn();
     const tierExpr = tierExpression(tierCol);
 
     const groupExpr = groupBySqlExpr.value;
     const [tiers, heat, domainBreakdown, sourceBreakdown] = await Promise.all([
       query<{ tier: string; n: number }>(
-        `SELECT ${tierExpr} AS tier, count(*) AS n FROM cde_canonical ${where} GROUP BY ${tierExpr}`,
+        `SELECT ${tierExpr} AS tier, count(*) AS n FROM cde_canonical ${whereCanon} GROUP BY ${tierExpr}`,
       ),
       // Heatmap stays on cde_full (per-context) so a CDE that spans multiple
       // domains contributes one cell per domain — the richer "coverage"
@@ -140,7 +143,7 @@ async function load() {
           ${groupExpr} AS "group",
           count(DISTINCT cde_id) AS cde_count
         FROM cde_full
-        ${where}
+        ${whereFull}
         GROUP BY ${tierExpr}, ${groupExpr}
         HAVING ${tierExpr} IN ('Core', 'Recommended', 'Supplemental')
       `),
@@ -149,14 +152,14 @@ async function load() {
       // count(DISTINCT cde_id) prevents double-counting within a domain.
       query<{ label: string; n: number }>(`
         SELECT COALESCE(cde_domain, 'Unassigned') AS label, count(DISTINCT cde_id) AS n
-        FROM cde_full ${where}
+        FROM cde_full ${whereFull}
         GROUP BY COALESCE(cde_domain, 'Unassigned')
       `),
       // Origins is the canonical-dedup label list (e.g. "NINDS Epilepsy · NLM
       // CDE Repository") — origins is per-CDE (intrinsic), so cde_canonical.
       query<{ label: string; n: number }>(`
         SELECT COALESCE(origins, 'Unknown') AS label, count(*) AS n
-        FROM cde_canonical ${where}
+        FROM cde_canonical ${whereCanon}
         GROUP BY COALESCE(origins, 'Unknown')
       `),
     ]);
@@ -182,7 +185,7 @@ async function load() {
   }
 }
 
-watch([status, lens, studyTypeFilter, groupBy], load);
+watch([status, lens, populationLens, groupBy], load);
 onMounted(load);
 
 // Heatmap row labels: unique values of the selected groupBy dimension,
@@ -219,15 +222,13 @@ const heatmapMatrix = computed(() => {
 });
 
 // Map the active groupBy + clicked row label into the CDE list filter shape.
-// `domain` / `subdomain` / `source` are filterable on the /cdes route.
+// `domain` / `source` are filterable on the /cdes route.
 function rowFilterFor(group: string): Record<string, string | undefined> {
   switch (groupBy.value) {
     case 'domain':
       return { domain: group };
     case 'source':
       return { source: group };
-    case 'subdomain':
-      return { subdomain: group };
   }
 }
 

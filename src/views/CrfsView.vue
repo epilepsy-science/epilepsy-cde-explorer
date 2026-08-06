@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useCrfStore } from '@/composables/useCrfStore';
-import { useStudyType } from '@/composables/useStudyType';
+import { POPULATION_OPTIONS } from '@/composables/usePopulation';
 import { CRF_BADGE_DESCRIPTIONS, crfBadge, type CrfRecord } from '@/types';
 
 // Status legend rows shown in the help popover next to the Source filter.
@@ -21,7 +21,19 @@ import CrfCreateDialog from '@/components/CrfCreateDialog.vue';
 
 const router = useRouter();
 const { crfs, ensureLoaded, loaded } = useCrfStore();
-const { filter: studyTypeFilter } = useStudyType();
+// Population filter (Adult/Pediatric/Preclinical), default All. Local to this
+// view (not the shared Explore lens).
+const populationFilter = ref<string>('all');
+// Disease filter, from the CRFs' own form_classification context(s) (disease_scope).
+const diseaseFilter = ref<string>('all');
+const diseaseOptions = computed<string[]>(() => {
+  const s = new Set<string>();
+  for (const c of crfs.value) {
+    if (c.source !== 'seeded' || !c.disease_scope) continue;
+    for (const d of c.disease_scope.split(', ')) if (d) s.add(d);
+  }
+  return [...s].sort();
+});
 const search = ref('');
 // Source filter values: 'all', 'custom', or a CRF status label that exists in
 // the loaded data ('Standard', 'Qualified', etc.). Built dynamically from
@@ -89,14 +101,22 @@ function matchesSourceFilter(c: CrfRecord): boolean {
 
 const filtered = computed<CrfRecord[]>(() => {
   const q = search.value.trim().toLowerCase();
-  const st = studyTypeFilter.value;
+  const pop = populationFilter.value;
+  const dis = diseaseFilter.value;
   return crfs.value.filter((c) => {
     if (!matchesSourceFilter(c)) return false;
     if (formType.value === 'items' && isExternalOnly(c)) return false;
     if (formType.value === 'external' && !isExternalOnly(c)) return false;
-    // Custom CRFs (user-authored, study_type null) always show — they're in
-    // the reviewer's personal workspace regardless of clinical/preclinical.
-    if (st !== 'all' && c.source === 'seeded' && c.study_type !== st) return false;
+    // Disease filter: a seeded CRF matches if its disease context(s) include the
+    // selection. Custom CRFs (personal workspace) always show.
+    if (dis !== 'all' && c.source === 'seeded') {
+      if (!(c.disease_scope ?? '').split(', ').filter(Boolean).includes(dis)) return false;
+    }
+    // Population filter: a seeded CRF matches if any member CDE carries the
+    // selected population. Custom CRFs (personal workspace) always show.
+    if (pop !== 'all' && c.source === 'seeded') {
+      if (!(c.populations ?? '').split('|').filter(Boolean).includes(pop)) return false;
+    }
     if (!q) return true;
     return (
       c.title.toLowerCase().includes(q) ||
@@ -221,10 +241,22 @@ const counts = computed(() => ({
         <el-option :label="`External instruments (${counts.externalOnly})`" value="external" />
         <el-option label="All forms" value="all" />
       </el-select>
-      <el-select v-model="studyTypeFilter" placeholder="Study type" class="filter-select">
-        <el-option label="All" value="all" />
-        <el-option label="Clinical" value="Clinical" />
-        <el-option label="Preclinical" value="Preclinical" />
+      <el-select
+        v-if="diseaseOptions.length"
+        v-model="diseaseFilter"
+        placeholder="Disease"
+        class="filter-select"
+      >
+        <el-option label="All diseases" value="all" />
+        <el-option v-for="d in diseaseOptions" :key="d" :label="d" :value="d" />
+      </el-select>
+      <el-select v-model="populationFilter" placeholder="Population" class="filter-select">
+        <el-option
+          v-for="o in POPULATION_OPTIONS"
+          :key="o.value"
+          :label="o.label"
+          :value="o.value"
+        />
       </el-select>
     </div>
 
