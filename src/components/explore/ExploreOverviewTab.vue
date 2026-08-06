@@ -25,7 +25,9 @@ const loading = ref(false);
 // Heatmap row dimension — what each row groups by. Tier stays on the columns
 // (3 fixed buckets) so this dimension can have many values without making
 // the heatmap unreadably wide.
-type GroupBy = 'domain' | 'subdomain' | 'source';
+// v2's classification taxonomy is a single level (`domain`) — there is no
+// subdomain/category — so group by domain or source.
+type GroupBy = 'domain' | 'source';
 const groupBy = ref<GroupBy>('domain');
 
 // Group dimensions read from the CDE-level taxonomy columns, NOT the
@@ -36,7 +38,6 @@ const groupBy = ref<GroupBy>('domain');
 // which have no bundles) to "Unassigned".
 const GROUP_BY_OPTIONS: Array<{ key: GroupBy; label: string; sqlExpr: string }> = [
   { key: 'domain', label: 'Domain', sqlExpr: `COALESCE(cde_domain, 'Unassigned')` },
-  { key: 'subdomain', label: 'Subdomain', sqlExpr: `COALESCE(cde_subdomain, 'Unassigned')` },
   { key: 'source', label: 'Source', sqlExpr: `COALESCE(origins, 'Unknown')` },
 ];
 
@@ -219,15 +220,13 @@ const heatmapMatrix = computed(() => {
 });
 
 // Map the active groupBy + clicked row label into the CDE list filter shape.
-// `domain` / `subdomain` / `source` are filterable on the /cdes route.
+// `domain` / `source` are filterable on the /cdes route.
 function rowFilterFor(group: string): Record<string, string | undefined> {
   switch (groupBy.value) {
     case 'domain':
       return { domain: group };
     case 'source':
       return { source: group };
-    case 'subdomain':
-      return { subdomain: group };
   }
 }
 
