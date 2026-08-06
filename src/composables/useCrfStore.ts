@@ -54,12 +54,35 @@ async function loadSeeded(): Promise<CrfRecord[]> {
     );
     if (!forms.length) return [];
 
-    // One pass: cde_key (= cde_canonical.cde_id) -> cde_name.
-    const nameRows = await query<{ cde_id: string; cde_name: string }>(
-      `SELECT cde_id, cde_name FROM cde_canonical`,
+    // One pass: cde_key (= cde_canonical.cde_id) -> cde_name + its populations.
+    const nameRows = await query<{ cde_id: string; cde_name: string; cde_populations: string | null }>(
+      `SELECT cde_id, cde_name, cde_populations FROM cde_canonical`,
     );
     const nameByKey = new Map<string, string>();
-    for (const r of nameRows) nameByKey.set(String(r.cde_id), String(r.cde_name));
+    const popsByKey = new Map<string, string>();
+    for (const r of nameRows) {
+      nameByKey.set(String(r.cde_id), String(r.cde_name));
+      if (r.cde_populations) popsByKey.set(String(r.cde_id), String(r.cde_populations));
+    }
+
+    // Each form's disease context(s) from form_classification (the promoted
+    // native column) — surfaced as disease_scope so same-named CRFs (e.g. the
+    // per-disease "Demographics") are distinguishable on the card/detail.
+    const ctxByForm = new Map<string, Set<string>>();
+    try {
+      const fc = await query<{ form_key: string; context: string }>(
+        `SELECT form_key, context FROM read_parquet('catalog__form_classification')
+         WHERE context IS NOT NULL AND context <> '*'`,
+      );
+      for (const r of fc) {
+        if (!r.form_key || !r.context) continue;
+        let s = ctxByForm.get(r.form_key);
+        if (!s) ctxByForm.set(r.form_key, (s = new Set()));
+        s.add(r.context);
+      }
+    } catch {
+      /* no form_classification in this catalog */
+    }
 
     return forms.map((f) => {
       const keys = f.member_cde_keys
@@ -73,6 +96,12 @@ async function loadSeeded(): Promise<CrfRecord[]> {
         label: null,
         instructions: null,
       }));
+      // A CRF's populations = the union of its member CDEs' populations.
+      const pops = new Set<string>();
+      for (const k of keys) {
+        const p = popsByKey.get(k);
+        if (p) for (const v of p.split('|')) if (v) pops.add(v);
+      }
       return {
         id: String(f.id),
         crf_name: String(f.form_key),
@@ -80,7 +109,9 @@ async function loadSeeded(): Promise<CrfRecord[]> {
         description: null,
         instructions: null,
         version: '1.0',
-        disease_scope: null,
+        disease_scope: ctxByForm.has(f.form_key)
+          ? [...ctxByForm.get(f.form_key)!].sort().join(', ')
+          : null,
         estimated_duration_minutes: null,
         collection_frequency: null,
         external_url: null,
@@ -89,6 +120,7 @@ async function loadSeeded(): Promise<CrfRecord[]> {
         // to "Qualified"). The catalog-vs-custom split stays on `source`.
         registration_status: null,
         items,
+        populations: pops.size ? [...pops].sort().join('|') : null,
         source: 'seeded',
       };
     });
