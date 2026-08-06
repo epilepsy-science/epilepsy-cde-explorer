@@ -75,18 +75,21 @@ async function init(): Promise<DuckDBHandle> {
     if (!manifestRes.ok) throw new Error(`Missing ${verBase}/manifest.json`);
     const manifest = (await manifestRes.json()) as CatalogManifest;
 
-    // Register each model's records.jsonl + the relationships.csv as DuckDB HTTP
-    // files (referenced by name in read_json / read_csv below).
+    // Register each model's records.parquet + relationships.parquet as DuckDB HTTP
+    // files (read via read_parquet below). Parquet is columnar + zstd, so DuckDB
+    // range-reads a fraction of the bytes vs the JSONL/CSV mirrors — the main load
+    // speedup. Records are still (id, data) with data a JSON string; classification
+    // parquets additionally promote the facet columns (unused here yet).
     const modelFile: Record<string, string> = {};
     for (const m of manifest.models) {
       const fileId = `catalog__${m.name}`;
-      const url = `${verBase}/metadata/models/${m.name}/versions/${m.version}/records.jsonl`;
+      const url = `${verBase}/metadata/models/${m.name}/versions/${m.version}/records.parquet`;
       await db.registerFileURL(fileId, url, duckdb.DuckDBDataProtocol.HTTP, false);
       modelFile[m.name] = fileId;
     }
     await db.registerFileURL(
       'catalog__relationships',
-      `${verBase}/metadata/relationships.csv`,
+      `${verBase}/metadata/relationships.parquet`,
       duckdb.DuckDBDataProtocol.HTTP,
       false,
     );
@@ -94,11 +97,11 @@ async function init(): Promise<DuckDBHandle> {
       if (!modelFile[req]) throw new Error(`catalog manifest missing required model: ${req}`);
     }
 
-    // Each records.jsonl line is {id, data:{...}}. Read `data` as JSON so fields
-    // absent from every record (e.g. keywords) resolve to NULL via `->>` instead
-    // of a struct-binder error.
+    // Each record is (id, data) with data a JSON string. Cast it to JSON so the
+    // `data->>'field'` extraction below resolves absent fields to NULL (not a
+    // struct-binder error), exactly as the previous read_json path did.
     const jsonSrc = (fileId: string) =>
-      `read_json('${fileId}', format='newline_delimited', columns={'id': 'VARCHAR', 'data': 'JSON'})`;
+      `(SELECT id, CAST(data AS JSON) AS data FROM read_parquet('${fileId}'))`;
     // Pipe-join a scalar sub-field across a nested JSON array of objects.
     const arrJoin = (path: string) =>
       `NULLIF(array_to_string(CAST(json_extract(data, '${path}') AS VARCHAR[]), '|'), '')`;
@@ -129,7 +132,7 @@ async function init(): Promise<DuckDBHandle> {
              CAST(target_record_id AS VARCHAR) AS target_id,
              relationship_type                 AS type,
              CAST(NULL AS VARCHAR)              AS _source_key
-      FROM read_csv_auto('catalog__relationships', header=true)
+      FROM read_parquet('catalog__relationships')
     `);
 
     // ── cde (flat, one row per CDE; PVs flattened; origins from SOURCED_FROM) ─

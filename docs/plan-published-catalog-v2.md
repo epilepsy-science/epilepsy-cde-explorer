@@ -86,7 +86,15 @@ Dashboard side: point `VITE_CDE_CATALOG_URL` at
 `https://cde-catalog.pennsieve.io/cde/collections/neuro-epilepsy` (path prefix), or
 add a `VITE_CDE_COLLECTION` knob the load layer appends.
 
-## Step P — Parquet reads (perf) — the speed fix
+## Known v2 field gaps (for the query-layer alignment)
+
+Renamed/removed fields the current views still read under old names (return NULL
+against v2 until re-mapped — pre-existing, not caused by the parquet swap):
+- **provenance**: v2 uses `provenance_name` (not `label`) and has no `study_type`
+  / `kind`. Affects the Sources column + origin/study-type facets.
+- (Watch for others as the classification/concept views are generalized.)
+
+## Step P — Parquet reads (perf) — the speed fix — DONE
 
 Goal: cut the slow load (26k CDEs + 76k classifications + 235k relationships parsed
 from JSONL).
