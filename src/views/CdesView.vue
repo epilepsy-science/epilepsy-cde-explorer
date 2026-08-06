@@ -2,7 +2,6 @@
 import { computed, ref, watch, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useDuckDB } from '@/composables/useDuckDB';
-import { useStudyType } from '@/composables/useStudyType';
 import { DISEASE_OPTIONS, useDiseaseLens } from '@/composables/useDiseaseLens';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
 import ClassificationPill from '@/components/ClassificationPill.vue';
@@ -18,7 +17,6 @@ import {
 const route = useRoute();
 const router = useRouter();
 const { status, query } = useDuckDB();
-const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
 const { classificationColumn } = useDiseaseLens();
 
 // Every classification_* column on cde_full, derived from DISEASE_OPTIONS so
@@ -49,6 +47,7 @@ const classTier = ref<string[]>([]);
 const bundleFilter = ref<string | null>(null);
 const cdeIdFilter = ref<string | null>(null);
 const originFilter = ref<string[]>([]);
+const populationFilter = ref<string[]>([]);
 const domainFilter = ref<string | null>(null);
 const subdomainFilter = ref<string | null>(null);
 
@@ -63,6 +62,7 @@ function syncFiltersFromQuery() {
   bundleFilter.value = strParam(route.query.bundle);
   cdeIdFilter.value = strParam(route.query.cde);
   originFilter.value = csvParam(route.query.origin);
+  populationFilter.value = csvParam(route.query.population);
   domainFilter.value = strParam(route.query.domain);
   subdomainFilter.value = strParam(route.query.subdomain);
 }
@@ -164,8 +164,13 @@ function buildWhere(): { where: string; params: unknown[] } {
     clauses.push(`(${ors})`);
     for (const key of originFilter.value) params.push(`%,${key},%`);
   }
-  const studyClause = studyTypeClause();
-  if (studyClause) clauses.push(studyClause);
+  if (populationFilter.value.length) {
+    // cde_population is the v2 classification scoping axis (Adult/Pediatric/…),
+    // per context; match a CDE that carries any of the selected populations.
+    const ph = populationFilter.value.map(() => '?').join(',');
+    clauses.push(`cde_population IN (${ph})`);
+    params.push(...populationFilter.value);
+  }
   if (domainFilter.value) {
     // cde_domain already COALESCEs cl.domain → b.domain, so this works for
     // bundled (NT-PRECEDS) and unbundled (NINDS) sources alike.
@@ -552,7 +557,7 @@ watch(status, async (s) => {
 });
 
 watch(
-  [search, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, originFilter, studyTypeFilter, pageSize, viewMode],
+  [search, disease, classTier, bundleFilter, cdeIdFilter, domainFilter, subdomainFilter, originFilter, populationFilter, pageSize, viewMode],
   () => {
     page.value = 1;
     load();
@@ -696,26 +701,26 @@ async function loadOriginOptions() {
     originOptions.value = [];
   }
 }
+// Population options (v2 classification scoping: Adult/Pediatric/Preclinical/…),
+// loaded from the data so new values appear without a code change.
+const populationOptions = ref<string[]>([]);
+async function loadPopulationOptions() {
+  try {
+    const rows = await query<{ population: string }>(
+      `SELECT DISTINCT cde_population AS population FROM cde_full WHERE cde_population IS NOT NULL ORDER BY 1`,
+    );
+    populationOptions.value = rows.map((r) => r.population);
+  } catch {
+    populationOptions.value = [];
+  }
+}
 watch(status, (s) => {
-  if (s === 'ready') loadOriginOptions();
+  if (s === 'ready') {
+    loadOriginOptions();
+    loadPopulationOptions();
+  }
 }, { immediate: true });
 
-// When the user picks origin(s), auto-align the Study type filter so they
-// don't accidentally filter out everything they just selected. If the chosen
-// origins agree on a study_type, snap to it; if they disagree, drop to "all".
-watch(originFilter, (selected) => {
-  if (!selected.length || !originOptions.value.length) return;
-  const types = new Set(
-    selected
-      .map((k) => originOptions.value.find((o) => o.value === k)?.study_type)
-      .filter((t): t is 'Clinical' | 'Preclinical' => t === 'Clinical' || t === 'Preclinical'),
-  );
-  if (types.size === 1) {
-    studyTypeFilter.value = [...types][0];
-  } else if (types.size > 1) {
-    studyTypeFilter.value = 'all';
-  }
-});
 </script>
 
 <template>
@@ -818,13 +823,20 @@ watch(originFilter, (selected) => {
       </el-select>
 
       <el-select
-        v-model="studyTypeFilter"
-        placeholder="Study type"
+        v-if="populationOptions.length > 1"
+        v-model="populationFilter"
+        multiple
+        collapse-tags
+        collapse-tags-tooltip
+        placeholder="Population"
         class="filter-select"
       >
-        <el-option label="All studies" value="all" />
-        <el-option label="Clinical" value="Clinical" />
-        <el-option label="Preclinical" value="Preclinical" />
+        <el-option
+          v-for="p in populationOptions"
+          :key="p"
+          :label="p"
+          :value="p"
+        />
       </el-select>
 
     </div>

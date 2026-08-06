@@ -7,7 +7,7 @@ import { TooltipComponent, TitleComponent } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import { useDuckDB } from '@/composables/useDuckDB';
 import { useDiseaseLens } from '@/composables/useDiseaseLens';
-import { useStudyType } from '@/composables/useStudyType';
+import { usePopulation } from '@/composables/usePopulation';
 import CdeDetailDrawer from '@/components/CdeDetailDrawer.vue';
 import type { CdeRow, CdeCanonicalRow } from '@/types';
 
@@ -15,7 +15,7 @@ use([TreemapChart, TooltipComponent, TitleComponent, CanvasRenderer]);
 
 const { status, query } = useDuckDB();
 const { lens, option, clause } = useDiseaseLens();
-const { filter: studyTypeFilter, clause: studyTypeClause } = useStudyType();
+const { filter: populationLens, clause: populationClause } = usePopulation();
 
 const rows = ref<CdeRow[]>([]);
 const loading = ref(false);
@@ -30,7 +30,7 @@ async function load() {
     const parts: string[] = [];
     const lensClause = clause();
     if (lensClause) parts.push(lensClause);
-    const stClause = studyTypeClause();
+    const stClause = populationClause();
     if (stClause) parts.push(stClause);
     const where = parts.length ? `WHERE ${parts.join(' AND ')}` : '';
     const data = await query<CdeRow>(`
@@ -42,7 +42,7 @@ async function load() {
   }
 }
 
-watch([status, lens, studyTypeFilter], load);
+watch([status, lens, populationLens], load);
 onMounted(load);
 
 // One base hue per domain. Child tile shades are computed explicitly below so

@@ -88,6 +88,10 @@ export interface CdeRow {
   // (almost always the CRF name) and bundles have their own `bundle_category`.
   cde_domain: string | null;
   cde_subdomain: string | null;
+  /** v2 flat scoping axes for this classification context (wildcard '*' → null).
+   *  cde_sub_context is the tree/treemap sub-level below domain. */
+  cde_sub_context: string | null;
+  cde_population: string | null;
   /** Canonical hierarchical path, ` / `-delimited. e.g. "Demographics / Age".
    *  Derived from domain/subdomain. */
   cde_path: string | null;
@@ -163,6 +167,9 @@ export interface CdeCanonicalRow {
   // Pipe-joined distinct values across contexts.
   cde_domain: string | null;
   cde_subdomain: string | null;
+  /** Pipe-joined distinct v2 scoping axes across contexts. */
+  cde_sub_contexts: string | null;
+  cde_populations: string | null;
   cde_paths: string | null;
 
   bundle_ids: string | null;

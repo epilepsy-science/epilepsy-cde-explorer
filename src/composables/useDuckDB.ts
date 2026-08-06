@@ -248,6 +248,9 @@ async function init(): Promise<DuckDBHandle> {
         data->>'subdomain'               AS subdomain,
         data->>'category'                AS category,
         data->>'working_group'           AS working_group,
+        -- v2 flat scoping axes ('*' wildcard = applies to all -> NULL).
+        NULLIF(data->>'sub_context', '*') AS sub_context,
+        NULLIF(data->>'population', '*')  AS population,
         ${ctxCol('agnostic', `'Y'`)}     AS disease_agnostic,
         ${ctxCol('neurotrauma', `'Y'`)}  AS disease_neurotrauma,
         ${ctxCol('tbi', `'Y'`)}          AS disease_tbi,
@@ -454,6 +457,10 @@ async function init(): Promise<DuckDBHandle> {
         ${classificationEpilepsyExpr} AS classification_epilepsy,
         ${domainExpr}    AS cde_domain,
         ${subdomainExpr} AS cde_subdomain,
+        -- v2 flat scoping axes surfaced for the tree/treemap sub-level + the
+        -- population filter (per classification context).
+        cl.sub_context                AS cde_sub_context,
+        cl.population                 AS cde_population,
         -- Canonical hierarchical path: domain / subdomain only. The
         -- "category" column on cde_classification is per-context (almost
         -- always equal to the CRF/form name) and isn't a real CDE-intrinsic
@@ -462,7 +469,7 @@ async function init(): Promise<DuckDBHandle> {
         NULLIF(
           array_to_string(
             list_filter(
-              [${domainExpr}, ${subdomainExpr}],
+              [${domainExpr}, ${subdomainExpr}, cl.sub_context],
               x -> x IS NOT NULL AND TRIM(x) != ''
             ),
             ' / '
@@ -576,6 +583,8 @@ async function init(): Promise<DuckDBHandle> {
         -- their full set so the table can show all alignments.
         nullif(string_agg(DISTINCT cde_domain, '|'), '')      AS cde_domain,
         nullif(string_agg(DISTINCT cde_subdomain, '|'), '')   AS cde_subdomain,
+        nullif(string_agg(DISTINCT cde_sub_context, '|'), '') AS cde_sub_contexts,
+        nullif(string_agg(DISTINCT cde_population, '|'), '')  AS cde_populations,
         nullif(string_agg(DISTINCT cde_path, '|'), '')        AS cde_paths,
         -- Bundle attribution: pipe-joined distinct bundles + count.
         nullif(string_agg(DISTINCT bundle_id, '|'), '')       AS bundle_ids,
