@@ -33,10 +33,11 @@ resource "aws_amplify_app" "this" {
     VITE_GA_MEASUREMENT_ID  = var.ga_measurement_id
     # Published CDE catalog (cde-service) the dashboard reads via DuckDB-WASM.
     # Points at the neuro/epilepsy scoped collection (a drop-in catalog root: the
-    # load path is <base>/cde/latest.json + <base>/cde/versions/…). Requires the
-    # prod catalog to be v2 with the collection published; local dev overrides
-    # this in .env.local (the dev collection) meanwhile.
-    VITE_CDE_CATALOG_URL = "https://cde-catalog.pennsieve.io/collections/neuro-epilepsy"
+    # load path is <base>/cde/latest.json + <base>/cde/versions/…). This Amplify
+    # app is in the dev account, so it reads the dev catalog's collection; switch
+    # to https://cde-catalog.pennsieve.io/collections/neuro-epilepsy once the prod
+    # catalog is migrated to v2 and the collection is published there.
+    VITE_CDE_CATALOG_URL = "https://d1es2ibvcs23vq.cloudfront.net/collections/neuro-epilepsy"
   }
 }
 
