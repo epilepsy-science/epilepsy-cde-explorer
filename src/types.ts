@@ -403,6 +403,9 @@ export interface CrfRecord {
    *  CRF_STATUS_DEFAULT for why "Standard" isn't used as the fallback. */
   registration_status: string | null;
   items: CrfItem[];
+  /** Pipe-joined distinct populations of this CRF's member CDEs (seeded/form
+   *  CRFs only) — powers the CRF list's Population filter. Absent for custom. */
+  populations?: string | null;
   /** 'seeded' = read-only from parquet; 'custom' = user-authored, in localStorage. */
   source: 'seeded' | 'custom';
   created_at?: string;
