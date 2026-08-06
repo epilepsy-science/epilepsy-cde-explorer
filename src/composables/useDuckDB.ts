@@ -194,8 +194,47 @@ async function init(): Promise<DuckDBHandle> {
 
     // ── cde_classification: pivot long-form (one row per CDE×context) to the
     //    wide disease_*/classification_* contract the views expect ────────────
-    const ctxCol = (label: string, val: string) =>
-      `CASE WHEN data->>'context' = '${label}' THEN ${val} END`;
+    // The v2 catalog's `context` values are full names, so map them back to the
+    // app's fixed disease keys (the persisted DiseaseKey axis — do NOT change the
+    // key values). Many contexts → one key; the legacy short labels are kept so a
+    // pre-v2 / differently-labelled catalog still matches. A context absent from
+    // this map sets no disease flag (still browsable via its raw context elsewhere).
+    const CONTEXT_TO_DISEASE: Record<string, string> = {
+      'Traumatic Brain Injury': 'tbi',
+      'Preclinical TBI': 'tbi',
+      'Sport Related Concussion': 'tbi',
+      'Sport-Related Concussion': 'tbi',
+      'Spinal Cord Injury': 'sci',
+      Epilepsy: 'epilepsy',
+      'General (For all diseases)': 'agnostic',
+      // legacy short labels (old catalog / other sources)
+      TBI: 'tbi',
+      SCI: 'sci',
+      PTE: 'pte',
+      Neurotrauma: 'neurotrauma',
+      Agnostic: 'agnostic',
+    };
+    const sqlList = (vals: string[]) => vals.map((v) => `'${v.replace(/'/g, "''")}'`).join(', ');
+    // CASE over the set of contexts that map to this disease key.
+    const ctxCol = (key: string, val: string) => {
+      const ctxs = Object.keys(CONTEXT_TO_DISEASE).filter((c) => CONTEXT_TO_DISEASE[c] === key);
+      return ctxs.length
+        ? `CASE WHEN data->>'context' IN (${sqlList(ctxs)}) THEN ${val} END`
+        : `CAST(NULL AS VARCHAR)`;
+    };
+    // Collapse the granular v2 catalog tiers into the app's 3 display tiers so the
+    // facet, chips, and stat cards read one stable vocabulary. NLM "Tier 1" ~ Core;
+    // "Supplemental - Highly Recommended" ~ Recommended; Basic/Proposed/Exploratory
+    // roll into Supplemental.
+    const tierExpr = `CASE data->>'tier'
+      WHEN 'Core' THEN 'Core'
+      WHEN 'Tier 1' THEN 'Core'
+      WHEN 'Supplemental - Highly Recommended' THEN 'Recommended'
+      WHEN 'Supplemental' THEN 'Supplemental'
+      WHEN 'Basic' THEN 'Supplemental'
+      WHEN 'Proposed' THEN 'Supplemental'
+      WHEN 'Exploratory' THEN 'Supplemental'
+      ELSE NULLIF(data->>'tier', '') END`;
     await conn.query(`
       CREATE OR REPLACE VIEW cde_classification AS
       SELECT
@@ -209,18 +248,18 @@ async function init(): Promise<DuckDBHandle> {
         data->>'subdomain'               AS subdomain,
         data->>'category'                AS category,
         data->>'working_group'           AS working_group,
-        ${ctxCol('Agnostic', `'Y'`)}     AS disease_agnostic,
-        ${ctxCol('Neurotrauma', `'Y'`)}  AS disease_neurotrauma,
-        ${ctxCol('TBI', `'Y'`)}          AS disease_tbi,
-        ${ctxCol('PTE', `'Y'`)}          AS disease_pte,
-        ${ctxCol('SCI', `'Y'`)}          AS disease_sci,
-        ${ctxCol('Epilepsy', `'Y'`)}     AS disease_epilepsy,
-        ${ctxCol('Agnostic', `data->>'tier'`)}    AS classification_agnostic,
-        ${ctxCol('Neurotrauma', `data->>'tier'`)} AS classification_neurotrauma,
-        ${ctxCol('TBI', `data->>'tier'`)}         AS classification_tbi,
-        ${ctxCol('PTE', `data->>'tier'`)}         AS classification_pte,
-        ${ctxCol('SCI', `data->>'tier'`)}         AS classification_sci,
-        ${ctxCol('Epilepsy', `data->>'tier'`)}    AS classification_epilepsy
+        ${ctxCol('agnostic', `'Y'`)}     AS disease_agnostic,
+        ${ctxCol('neurotrauma', `'Y'`)}  AS disease_neurotrauma,
+        ${ctxCol('tbi', `'Y'`)}          AS disease_tbi,
+        ${ctxCol('pte', `'Y'`)}          AS disease_pte,
+        ${ctxCol('sci', `'Y'`)}          AS disease_sci,
+        ${ctxCol('epilepsy', `'Y'`)}     AS disease_epilepsy,
+        ${ctxCol('agnostic', tierExpr)}    AS classification_agnostic,
+        ${ctxCol('neurotrauma', tierExpr)} AS classification_neurotrauma,
+        ${ctxCol('tbi', tierExpr)}         AS classification_tbi,
+        ${ctxCol('pte', tierExpr)}         AS classification_pte,
+        ${ctxCol('sci', tierExpr)}         AS classification_sci,
+        ${ctxCol('epilepsy', tierExpr)}    AS classification_epilepsy
       FROM ${jsonSrc(modelFile.cde_classification)}
     `);
 

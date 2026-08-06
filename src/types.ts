@@ -262,18 +262,16 @@ export interface CdeRepresentsConcept {
   role: ConceptRole;
 }
 
-export type Classification =
-  | 'Core'
-  | 'Recommended'
-  | 'Supplemental'
-  | 'Not Applicable'
-  | null;
+// The 3 user-facing recommendation tiers. The granular v2 catalog tiers
+// (Supplemental - Highly Recommended, Basic, Proposed, Exploratory, Tier 1) are
+// collapsed into these at the data layer (see useDuckDB `tierExpr`), so the whole
+// UI works with one simple, familiar vocabulary.
+export type Classification = 'Core' | 'Recommended' | 'Supplemental' | null;
 
 export const CLASSIFICATION_OPTIONS: Array<Exclude<Classification, null>> = [
   'Core',
   'Recommended',
   'Supplemental',
-  'Not Applicable',
 ];
 
 export const DATA_TYPES = [
