@@ -32,9 +32,11 @@ resource "aws_amplify_app" "this" {
     VITE_RECAPTCHA_SITE_KEY = var.recaptcha_site_key
     VITE_GA_MEASUREMENT_ID  = var.ga_measurement_id
     # Published CDE catalog (cde-service) the dashboard reads via DuckDB-WASM.
-    # Production points at the official prod catalog; local dev overrides this
-    # in .env.local (e.g. the dev catalog) while the v2 schema work lands.
-    VITE_CDE_CATALOG_URL = "https://cde-catalog.pennsieve.io"
+    # Points at the neuro/epilepsy scoped collection (a drop-in catalog root: the
+    # load path is <base>/cde/latest.json + <base>/cde/versions/…). Requires the
+    # prod catalog to be v2 with the collection published; local dev overrides
+    # this in .env.local (the dev collection) meanwhile.
+    VITE_CDE_CATALOG_URL = "https://cde-catalog.pennsieve.io/collections/neuro-epilepsy"
   }
 }
 
